@@ -16,24 +16,37 @@ class HTTPMessage(object):
 		if message is not None: self.send(message)
 
 	@contextlib.contextmanager
-	def _http_connect(self, host):
+	def _http_connect(self, host, timeout=0.1):
 		try:
-			conn = httplib.HTTPConnection(host)
+			conn = httplib.HTTPConnection(host, timeout=timeout)
 			yield conn
 		finally:
 			conn.close()
 
-	def send(self, message):
+	def send(self, message, silent=0):
 		with self._http_connect(self.host) as conn:
-			# if message: warning("sending message: %s ..." % message.split('\n')[0][0:100])
-			if message: warning("sending message: %s ..." % message)
-			conn.request('POST', self.url, message, self.headers)
-			response = conn.getresponse()
+			if message and not silent: warning("sending message: %s ..." % message)
+			# try sending, if not successful, mock a http response with the exception
+			try:
+				conn.request('POST', self.url, message, self.headers)
+				response = conn.getresponse()
+			except Exception, e:
+				response = HTTPResponse(reason='Cannot connect to the server: %s' % e)
 			body = response.read()
-			if response.status != 200:
+			# non-standard responses should be seen
+			if response.status != 200 and not silent:
 				warning("got response: %d %s, %d bytes" % (response.status, response.reason, response.length))
 				if response.length: warning(body)
 			return response, body
+
+class HTTPResponse(object):
+	"""A blank http response, returned by HTTPMessage.send() if there were errors with the connection."""
+	def __init__(self, status=0, reason='', length=0, body=''):
+		self.status = status
+		self.reason = reason
+		self.length = length
+	def read(self):
+		return ''
 
 class BlockInfo(object):
 	def __init__(self, id='', block=''):
@@ -142,13 +155,6 @@ class EditsListener(sublime_plugin.EventListener):
 		self.active = True
 		self.files = {}
 
-		# ask if there are any files to watch (send an empty message, expect a stringified dict)
-		# assume no new files until a window reactivation (to avoid shooting lots of requests)
-		response, body = self.message.send('')
-		if not len(body) or not body.startswith('{'): return self.on_deactivated(None)
-		self.files = ast.literal_eval(body)
-		warning('watching files: ' + str(self.files))
-
 	def on_deactivated(self, view):
 		self.active = False
 
@@ -157,6 +163,17 @@ class EditsListener(sublime_plugin.EventListener):
 
 		filename = view.file_name() or ''
 		if not filename.endswith('.less'): return
+
+		if not self.files:
+			# ask if there are any files to watch (send an empty message, expect a stringified dict)
+			# if no server connection or no files, deactivate until the next window focus (to avoid shooting lots of requests)
+			response, body = self.message.send('', silent=1)
+			if not response or response.status != 200:
+				self.on_deactivated(view)
+				return warning('watch server not found, ignoring edits temporarily.')
+			if not len(body) or not body.startswith('{'): return self.on_deactivated(None)
+			self.files = ast.literal_eval(body)
+			warning('watching files: ' + str(self.files))
 
 		# if no matches in the watched files, flag this file (window reactivation resets file list)
 		filename = filename.replace(os.path.sep, '/')

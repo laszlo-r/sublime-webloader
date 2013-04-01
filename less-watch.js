@@ -1,39 +1,61 @@
-function LessWatch(window) {
+
+watch = (function LessWatch(window) {
 
 	this.init = function() {
-		this.files = $A(document.getElementsByTagName('link')).
-			filter(function(a) { return a.href.slice(-5) === '.less'; }).
-			map(function(a) { return a.href; })
-		this.connect()
+
+		this.server = { host: 'localhost', port: 9000, url: '/less_updates' };
+		this.debug = 1
+
+		var file_pattern = /(?:https?:\/\/[\w\.-]+)(\/.+\.less)(?:\?(?:[\w&=_-]*&)*server=([\w\.:_-]+)(?:&|$)?)?/,
+			file_info = function(a) { return a.type == 'text/css' && a.href && (a = a.href.match(file_pattern)) && a.slice(1, 3); },
+			files = $A(document.getElementsByTagName('link')).map(file_info).filter(this.self), 
+			host = (files.map(function(a) { return a[1]; }).filter(this.self).pop() || '').split(':');
+
+		if (host[0]) this.server.host = host[0];
+		if (host[1]) this.server.port = host[1];
+
+		this.files = files.map(function(a) { return a[0]; });
+
+		this.connect();
 	}
 
 	this.connect = function() {
-		var url = "localhost:9000/less_updates";
-		var socket = this.socket = new WebSocket("ws://" + url); 
-		var ref = this, methods = ['onopen', 'onclose', 'onmessage']
-		var wrapper = function(funcname) {
-			this.parent.socket[funcname] = function() { ref[funcname].apply(ref, arguments); }
-		}
-		methods.each(wrapper, { parent: this })
+		var url = "ws://" + this.server.host + ':' + this.server.port + this.server.url + '?xclient=' + window.location.href;
+
+		this.log('connecting to ' + url);
+		var socket = this.socket = new WebSocket(url); 
+		var ref = this, methods = ['onopen', 'onclose', 'onmessage'];
+
+		methods.each(function(funcname) {
+			ref.socket[funcname] = function() { ref[funcname].apply(ref, arguments); }
+		});
+		return this.socket;
+	}
+
+	this.reconnect = function(server) {
+		if (server) this.server = server
+		return (this.socket && this.socket.close()) || this.connect();
 	}
 
 	this.log = function(message) {
+		if (!this.debug) return
 		console.log(typeof message === 'string' ? 
 			'[less-watch ' + (new Date()).toTimeString().slice(0, 8) + '] ' + message : 
 			message
 		);
 	}
 
+	this.self = function(x) { return x; }
+
 	this.onopen = function() {
 		var files = this.files.map(function(a) { return a.replace(/https?:\/\/[\w\.-]+/, ''); });
 		this.log('watching ' + files.join(', '));
 		this.socket.send('watch\n' + files.join('\n'))
 	}
-	this.onclose = function() { this.log('disconnected by server!'); }
+
+	this.onclose = function() { this.log('websocket closed'); }
 
 	this.onmessage = function(message) {
-		// socket.send('initial message from client');
-		// console.log(message)
 		this.update(message.data);
 	}
 
@@ -99,8 +121,6 @@ function LessWatch(window) {
 		}
 	}
 
-	this.init()
+	this.init();
 
-}
-
-watch = new LessWatch(window)
+})(window)

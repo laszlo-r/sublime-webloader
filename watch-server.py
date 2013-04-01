@@ -26,14 +26,17 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 		super(WebSocketHandler, self).__init__(application, request)
 		self.files = {}
 
-	def open(self): print "websocket opened."
-	def on_close(self): print "websocket closed."
+	def client_host(self, request):
+		return request.arguments.get('client', [request.headers.get('Origin', 'Unknown host')])[0]
+
+	def open(self): print "%s   opens websocket" % self.client_host(self.request)
+	def on_close(self): print "%s   closes websocket" % self.client_host(self.request)
 
 	def on_message(self, message):
 		"""Expects a file list (string with linebreaks, except first line), and stores them for the plugin"""
 		files = message.split('\n')[1:]
 		self.files.update(dict.fromkeys(files, 1))
-		print "new files to watch: " + ', '.join(files)
+		print "%s   new files to watch: %s" % (self.client_host(self.request), ', '.join(files))
 		# remove the reference in the pluginhandler to signal new files
 		if self.application.plugin_handler: self.application.plugin_handler.wshandler = None
 
@@ -57,8 +60,9 @@ def start_tornado():
 		(r"/less_updates", WebSocketHandler),
 	])
 
-	if __name__ == "__main__":
-		application.listen(9000)
-		tornado.ioloop.IOLoop.instance().start()
+	print "Started local Tornado server, waiting for connections."
+	application.listen(9000)
+	tornado.ioloop.IOLoop.instance().start()
 
-start_tornado()
+if __name__ == "__main__":
+	start_tornado()
