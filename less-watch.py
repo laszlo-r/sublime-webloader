@@ -7,25 +7,27 @@ def warning(message):
 	print "[less-watch] %s" % message 
 
 class HTTPMessage(object):
-	def __init__(self, message=None):
+	def __init__(self, message=None, silent=1):
 		self.host = 'localhost:9000'
 		self.url = '/less_watch'
 		self.headers = {'Content-type': 'text/plain', 'Accept': 'text/plain'}
+		self.silent = silent
 		# s = sublime.load_settings("Preferences.sublime-settings")
 		# current = s.get("font_size", 10)
 		if message is not None: self.send(message)
 
 	@contextlib.contextmanager
-	def _http_connect(self, host, timeout=0.1):
+	def _http_connect(self, host, timeout=0.05):
 		try:
 			conn = httplib.HTTPConnection(host, timeout=timeout)
 			yield conn
 		finally:
 			conn.close()
 
-	def send(self, message, silent=0):
+	def send(self, message, silent=None):
+		if silent is None: silent = self.silent
 		with self._http_connect(self.host) as conn:
-			if message and not silent: warning("sending message: %s ..." % message)
+			if message and not silent: warning("sending message: %s ..." % message.replace('\n', '\\n'))
 			# try sending, if not successful, mock a http response with the exception
 			try:
 				conn.request('POST', self.url, message, self.headers)
@@ -64,7 +66,6 @@ class BlockParser(object):
 			and len(pair[1].strip())
 
 	def validate(self, line, position):
-		# a:hover				{ border-bottom: 1px solid #ccc; }
 		# print "validating: '%s', '%s', %d" % (line, line[position], position)
 		line = line.strip()
 		a, b = line.find('{') + 1, max(line.rfind('}'), 0) or len(line)
@@ -135,14 +136,7 @@ class BlockParser(object):
 			else: parents.append(str(self.content[max(self.content.rfind('\n', 0, a), 0):a-1].strip()))
 		return list(reversed(parents))
 
-class LessUpdateCommand(sublime_plugin.TextCommand):
-	def __init__(self, view):
-		super(LessUpdateCommand, self).__init__(view)
-
-	def run(self, edit):
-		pass
-
-class EditsListener(sublime_plugin.EventListener):
+class EditListener(sublime_plugin.EventListener):
 	def __init__(self):
 		self.message = HTTPMessage()
 		self.parser = BlockParser()
@@ -150,13 +144,34 @@ class EditsListener(sublime_plugin.EventListener):
 		self.active = False
 		self.files = {}
 
-	def on_activated(self, view):
-		if (view.file_name() or '')[-5:] != '.less': return
-		self.active = True
-		self.files = {}
+	def update_files(self, response, body):
+		if not response or response.status != 200:
+			return warning('watch server not found, ignoring edits temporarily.')
+		body = filter(None, map(str.strip, body.split('\n')))
+		if not body:
+			if not self.files: warning('no files to watch yet (refresh your browser, and check the javascript console).')
+			return
+		self.files = dict.fromkeys(body, 1)
+		warning('watching files: ' + ', '.join(body))
+		return 1
 
-	def on_deactivated(self, view):
-		self.active = False
+	def refresh_file(self, view=None, status=''):
+		filename = (view if type(view) is str else (view.file_name() or '')).replace(os.path.sep, '/')
+		if not filename: return warning('an unknown file should have been refreshed (skipping this refresh).')
+		# get the url of this file (self.files should have it if we watched it), if none, ignore it
+		filename = self.files.get(filename, None)
+		if not filename: return
+		message = "%s\n/refresh %s" % (filename, status)
+		response, body = self.message.send(message)
+
+	def on_activated(self, view):
+		if (view.file_name() or '').endswith('.less'): self.active = 1
+
+	def on_deactivated(self, view): self.active = False
+
+	def on_post_save(self, view): self.refresh_file(view, 'saved')
+
+	def on_close(self, view): self.refresh_file(view, 'closed')
 
 	def on_modified(self, view):
 		if not self.active: return
@@ -164,36 +179,31 @@ class EditsListener(sublime_plugin.EventListener):
 		filename = view.file_name() or ''
 		if not filename.endswith('.less'): return
 
-		if not self.files:
-			# ask if there are any files to watch (send an empty message, expect a stringified dict)
-			# if no server connection or no files, deactivate until the next window focus (to avoid shooting lots of requests)
+		# active 1 or no files means we should ask for a fresh file list (send an empty message, expect a file on each line)
+		# if no server connection or no files, deactivate until the next window focus (to avoid shooting lots of requests)
+		if self.active is 1 or not self.files:
 			response, body = self.message.send('', silent=1)
-			if not response or response.status != 200:
-				self.on_deactivated(view)
-				return warning('watch server not found, ignoring edits temporarily.')
-			if not len(body) or not body.startswith('{'): return self.on_deactivated(None)
-			self.files = ast.literal_eval(body)
-			warning('watching files: ' + str(self.files))
+			if not self.update_files(response, body): return self.on_deactivated(view)
+			self.active = True
 
-		# if no matches in the watched files, flag this file (window reactivation resets file list)
 		filename = filename.replace(os.path.sep, '/')
+		# check if this file matches one of the watched files (/docroot/some/path.less matches /some/path.less)
+		# either store the matched web-filename, or flag it as non-watched (window reactivation resets the file list anyway)
 		if filename not in self.files:
-			match = next((True for f, v in self.files.iteritems() if v and filename.endswith(f)), None)
-			self.files[filename] = int(match)
+			self.files[filename] = next((name for name, watched in self.files.iteritems() if watched and filename.endswith(name)), None)
 		if not self.files[filename]: return
 
-		# TODO: support multiple selections? full file would be simpler than parsing
-		# if len(selections) > 1: return
 		selections = view.sel()
 		cursor = selections[0]
 
+		# TODO: see in readme
 		# don't move until the line is valid (no full-file parsing or networking)
 		# print "line:", view.line(cursor), view.substr(view.line(cursor))
 		# print 'region:', cursor, view.line(cursor)
-		line = view.substr(view.line(cursor))
-		if not self.parser.validate(line, cursor.begin() - view.line(cursor).begin()): return
+		# line = view.substr(view.line(cursor))
+		# if not self.parser.validate(line, cursor.begin() - view.line(cursor).begin()): return
 
-		# get the id and contents of the current block, see if it changed
+		# get the id and contents of the current block, see if it changed, ignore if not
 		position = cursor.begin()
 		self.parser.content = view.substr(sublime.Region(0, view.size()))
 		info = self.parser.block_info(position)
@@ -201,5 +211,8 @@ class EditsListener(sublime_plugin.EventListener):
 
 		# store and send changes
 		self.last_change = info
-		response, body = self.message.send("%s" % info)
+		response, body = self.message.send("%s\n%s" % (self.files[filename], info), silent=1)
+
+		# a non-empty response means an updated file list
+		if response.length: self.update_files(response, body)
 

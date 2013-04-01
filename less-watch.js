@@ -1,5 +1,6 @@
+(function(window) {
 
-watch = (function LessWatch(window) {
+function LessWatch() {
 
 	this.init = function() {
 
@@ -20,9 +21,9 @@ watch = (function LessWatch(window) {
 	}
 
 	this.connect = function() {
-		var url = "ws://" + this.server.host + ':' + this.server.port + this.server.url + '?xclient=' + window.location.href;
+		var url = "ws://" + this.server.host + ':' + this.server.port + this.server.url + '?client=' + window.location.href;
 
-		this.log('connecting to ' + url);
+		this.log('connecting to ' + url.split('?')[0]);
 		var socket = this.socket = new WebSocket(url); 
 		var ref = this, methods = ['onopen', 'onclose', 'onmessage'];
 
@@ -37,16 +38,6 @@ watch = (function LessWatch(window) {
 		return (this.socket && this.socket.close()) || this.connect();
 	}
 
-	this.log = function(message) {
-		if (!this.debug) return
-		console.log(typeof message === 'string' ? 
-			'[less-watch ' + (new Date()).toTimeString().slice(0, 8) + '] ' + message : 
-			message
-		);
-	}
-
-	this.self = function(x) { return x; }
-
 	this.onopen = function() {
 		var files = this.files.map(function(a) { return a.replace(/https?:\/\/[\w\.-]+/, ''); });
 		this.log('watching ' + files.join(', '));
@@ -56,49 +47,63 @@ watch = (function LessWatch(window) {
 	this.onclose = function() { this.log('websocket closed'); }
 
 	this.onmessage = function(message) {
-		this.update(message.data);
-	}
+		if (this.debug > 1) console.log(message)
 
-	this.hash = function(str) {
-		var hash = 0, letter;
-		if (str.length === 0) return hash;
-		for (i = 0; i < str.length; i++) {
-			letter = str.charCodeAt(i);
-			hash = ((hash<<5) - hash) + letter;
-			hash = hash & hash; // Convert to 32bit integer
+		message = message.data.split('\n')
+		var file = message[0], 
+			content = message[1] || '', 
+			cmd = content[0] === '/' ? content.slice(1).split(' ') : '';
+
+		switch (cmd[0]) {
+			case 'refresh':
+				this.log('refreshing ' + file + (cmd[1] ? ' (it was ' + cmd[1] + ')' : ''));
+				this.remove_existing(file) && less && less.refresh(1); // refresh has a reload flag
+				break;
+			case 'message':
+				this.log(content.slice(content.indexOf(' ')));
+				break;
+			default:
+				if (content) this.update(file, content);
 		}
-		return hash;
 	}
 
-	this.parse = function(err, tree) {
-		this.css = '';
-		if (err) return this.log(err.message + ' (column ' + err.index + ')');
-		this.css = tree.toCSS();
+	this.style_name = function(file, id) { return 'less-watch:' + file + (id ? ':' + id.replace(/ /g, '-') : ''); }
+
+	this.styles_matching = function(file) {
+		file = this.style_name(file)
+		return $A(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(file); });
 	}
 
-	this.remove_existing = function(id) {
-		id += ' {\n'
-		var cut = function(target, from, to, parent) {
-			var i = target.textContent.indexOf(from), 
-				j = target.textContent.indexOf(to, i)
-			// parent.log(('removing "' + from + '...' + to + '" from ' + target.id).replace(/\n/g, '|'))
-			return target.textContent.slice(0, i) + target.textContent.slice(j)
+	this.remove_existing = function(file, id) {
+		var styles = this.styles_matching(file, id);
+		if (!id) return styles.each(function(a) { a.parentNode.removeChild(a); }).length
+
+		var start = id + ' {\n', ending = "}\n";
+		var has_this_id = function(a) { return a.textContent.indexOf('\n' + id) > -1 || a.textContent.slice(0, id.length) === id; }
+		var cut_content = function(target) {
+			var i = target.textContent.indexOf(start), 
+				j = target.textContent.indexOf(ending, i);
+			// console.log(('removing "' + start + '...' + ending + '" from ' + target.id).replace(/\n/g, '|'))
+			target.textContent = target.textContent.slice(0, i) + target.textContent.slice(j);
 		}
-		var styles = $A(document.getElementsByTagName('style')).
-			filter(function(a) { return a.textContent.indexOf('\n' + id) > -1 || a.textContent.slice(0, id.length) === id; }).
-			each(function(a) { a.textContent = cut(a, id, "}\n", this.parent); }, { parent: this })
+		styles.filter(has_this_id).each(cut_content)
 	}
 
-	this.update = function(styles) {
-		var css, id = (styles.slice(0, styles.indexOf('{')).strip());
-		var thisref = this, parser = new less.Parser();
+	this.update = function(file, styles) {
+		var ref = this, parser = new less.Parser(), css, id
 
-		this.remove_existing(id)
-		this.log('updating ' + styles)
-		parser.parse(styles, function(err, tree) { thisref.parse(err, tree); });
+		id = styles.slice(0, styles.indexOf('{')).strip(); // css selector part
+		this.remove_existing(file, id)
+
+		// prefix + less_file_name + css-selector-part
+		// TODO: hashing?
+		id = 'less-watch:' + file + id.replace(/ /g, '-')
+
+		if (this.debug > 1)
+			this.log('updating ' + file.slice(file.lastIndexOf('/') + 1) + ': ' + styles)
+		parser.parse(styles, function(err, tree) { ref.parse(err, tree); });
 
 		if (!this.css) return;
-		id = 'less-watch:' + id.replace(/ /g, '-')
 
 		if ((css = document.getElementById(id)) === null) {
 			css = document.createElement('style');
@@ -121,6 +126,38 @@ watch = (function LessWatch(window) {
 		}
 	}
 
-	this.init();
+	this.parse = function(err, tree) {
+		this.css = '';
+		if (err) return this.log(err.message + ' (column ' + err.index + ')');
+		this.css = tree.toCSS();
+	}
 
-})(window)
+	this.hash = function(str) {
+		var hash = 0, letter;
+		if (str.length === 0) return hash;
+		for (i = 0; i < str.length; i++) {
+			letter = str.charCodeAt(i);
+			hash = ((hash<<5) - hash) + letter;
+			hash = hash & hash; // Convert to 32bit integer
+		}
+		return hash;
+	}
+
+	this.log = function(message) {
+		if (!this.debug) return
+		console.log(typeof message === 'string' ? 
+			'[less-watch ' + (new Date()).toTimeString().slice(0, 8) + '] ' + message : 
+			message
+		);
+	}
+
+	this.self = function(x) { return x; }
+
+	this.init();
+	return this;
+
+}
+
+return window.watch = new LessWatch();
+
+})(window);

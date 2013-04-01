@@ -19,12 +19,16 @@ How to use:
 TODO:
 -----
 
-+ delayed connection on window activation: the plugin only tries to connect when actual editing happens, and with a low timeout (0.1s now)
+- done: the plugin now only tries to connect when actual editing happens, and with a low timeout (0.05s, still can trigger the slow plugins warning)
+- test server with multiple sites and files: plugin -> server -> client process works find, but:
+  - should insert style elements under their respective link/style tags (overriding order counts with multiple files)
 - settings (server host, port, urls; different update methods, like updating full blocks, with a reasonable delay)
 - checking proper updating of various CSS selectors (less selector generating method may differ from the simple join-by-spaces used here)
-- test server with multiple sites and files
 - submit to package control <http://wbond.net/sublime_packages/package_control/package_developers>
-- check if hashing is needed at all
+- check if hashing is needed at all: custom style tag ids can get pretty long, but this way they are filterable, unlike hashes
+- multiple selections: in a well-structured less file you probably factor out frequently used values into variables, so multiple updates are not a priority; a full refresh would be is necessary, which is slow with large files on each modification; consider threading or other async solutions?
+  - could only send the current key-value pair, between previous and next semicolons or brackets
+- decide if basic validation would help (less network traffic), or not necessary (sublime and less handle the frequent updates well)
 
 Credits:
 --------
