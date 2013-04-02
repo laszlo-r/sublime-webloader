@@ -20,6 +20,7 @@ TODO:
 -----
 
 - done: the plugin now only tries to connect when actual editing happens, and with a low timeout (0.05s, still can trigger the slow plugins warning)
+  - could put these blocking connections under sublime.set_timeout(callback, millisecs) -- which is blocking, sadly
 - test server with multiple sites and files: plugin -> server -> client process works find, but:
   - should insert style elements under their respective link/style tags (overriding order counts with multiple files)
 - settings (server host, port, urls; different update methods, like updating full blocks, with a reasonable delay)
@@ -29,6 +30,7 @@ TODO:
 - multiple selections: in a well-structured less file you probably factor out frequently used values into variables, so multiple updates are not a priority; a full refresh would be is necessary, which is slow with large files on each modification; consider threading or other async solutions?
   - could only send the current key-value pair, between previous and next semicolons or brackets
 - decide if basic validation would help (less network traffic), or not necessary (sublime and less handle the frequent updates well)
+- as less.js doesn't expose an individual reload method, currently .less file reloads refresh all .less files
 
 Credits:
 --------

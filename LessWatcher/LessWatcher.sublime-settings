@@ -1,0 +1,11 @@
+{
+	"host": "localhost", 
+	"port": 9000, 
+	"urls": {
+		"plugin": "less_watch", 
+		"websocket": "less_updates"
+	}, 
+	"debug_level": 1, 
+	"plugin_timeout": 0.05, 
+	"more": "..."
+}

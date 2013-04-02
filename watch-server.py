@@ -1,7 +1,7 @@
 import tornado.ioloop
 import tornado.web
 import tornado.websocket
-import sys, time
+import sys, os, time, platform, contextlib, json
 
 class WatchApp(tornado.web.Application):
 	"""Main app for the http server; stores references to handlers instances and watched files"""
@@ -81,22 +81,89 @@ class WebSocketHandler(tornado.websocket.WebSocketHandler):
 		self.application.new_files(1)
 		self.application.debug("%s   asks to watch: %s" % (self.client_id(), ', '.join(files)))
 
-def start_tornado(port=9000, debug_level=1):
+
+def warning(message):
+	print message
+
+def usage():
+	return """
+	LessWatcher server (based on Tornado)
+
+	Usage:          python """ + __file__ + """ [sublime_path] [port] [debug_level]
+
+	 sublime_path:  only necessary if the server can't find your sublime data directory
+	 port:          any valid port number above 1024 which the server should use
+	 debug_level:   set this higher if you want to see debug messages
+	                0: silent; 1: only basic messages; 2: updates and requests
+	"""
+
+def start():
+	if sys.argv[1:] and sys.argv[1].strip('-') in ['h', 'help', '?']:
+		return warning(usage().replace('\t', ''))
+
+	settings = load_settings()
+	start_tornado(settings)
+
+def load_settings():
+	"""Loads and returns the merged package/user/script settings from the Sublime package directory."""
+
+	class SimpleDict(dict):
+		"""Dict with attribute access, credits to: http://stackoverflow.com/a/14620633/1393194"""
+		def __init__(self, *args, **kw):
+			super(SimpleDict, self).__init__(*args, **kw)
+			self.__dict__ = self
+
+	def readfile(f, as_json=1):
+		try:
+			with open(f, 'rU') as f:
+				return f.read() if not as_json else json.loads(f.read() or '{}', object_hook=SimpleDict)
+		except:
+			return ['', {}][as_json]
+
+	args = sys.argv[1:]
+	script_settings = {}
+	path = ''
+	paths = readfile(__file__[0:-3] + '.json')
+
+	if args and max(args[0].find(' '), args[0].find(os.sep)) > -1: script_settings['path'] = args.pop(0)
+	if args and args[0].isdigit() and 0 <= int(args[0]) < 10: script_settings['debug_level'] = int(args.pop(0))
+	if args and args[0].isdigit() and int(args[0]) > 1024: script_settings['port'] = int(args.pop(0))
+
+	if 'path' in script_settings and os.path.exists(script_settings['path']): path = script_settings['path']
+
+	if not path and platform.system() in paths['sublime_dir']:
+		path = os.path.join(paths['sublime_dir'][platform.system()], paths['package_dir'])
+		path = reduce(lambda path, key: path.replace('%' + key + '%', os.environ[key]), paths['replace'], path)
+
+	if not os.path.exists(path):
+		return warning("Can't find the Sublime Packages directory at '%s'. Please provide a correct path." % path)
+
+	package_dir = os.path.join(path, paths['plugin_name'])
+	user_dir = os.path.join(path, paths['user_dir'])
+	settings_file = paths['plugin_name'] + paths['settings_ext']
+	
+	settings = readfile(os.path.join(package_dir, settings_file))
+	user_settings = readfile(os.path.join(user_dir, settings_file))
+	settings.update(user_settings, **script_settings)
+	# print json.dumps(settings, indent=2, sort_keys=True)
+
+	return settings
+
+def start_tornado(settings):
 	"""Starts up a WatchApp (tornado.web.Application) on localhost:9000."""
 
+	print json.dumps(settings, indent=4, sort_keys=1)
+
 	application = WatchApp([
-		(r"/less_watch", PluginHandler),
-		(r"/less_updates", WebSocketHandler),
+		('/' + settings.urls.plugin, PluginHandler),
+		('/' + settings.urls.websocket, WebSocketHandler),
 	], )
 
-	application.listen(port)
-	application.debug_level = debug_level
-	application.debug("Started watch server on localhost:%d, waiting for connections. Ctrl-c or close window to stop." % port)
+	application.listen(settings.port)
+	application.debug_level = settings.debug_level
+	application.debug("Started watch server on localhost:%d, waiting for connections. Ctrl-c or close window to stop." % settings.port)
+	return
 	tornado.ioloop.IOLoop.instance().start()
 
-if __name__ == "__main__":
-	kw = {}
-	if sys.argv[1:] and sys.argv[1].isdigit(): kw['port'] = int(sys.argv[1])
-	if sys.argv[2:] and sys.argv[2].isdigit(): kw['debug_level'] = int(sys.argv[2])
 
-	start_tornado(**kw)
+if __name__ == "__main__": start()

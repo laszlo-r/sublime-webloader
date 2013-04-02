@@ -1,10 +1,19 @@
 import sublime, sublime_plugin
-import httplib, contextlib, itertools
+import os, httplib, contextlib, itertools
 from functools import partial
-import os, ast
+
+
+plugin = __name__.title().replace('-', '')
+settings = sublime.load_settings("LessWatcher.sublime-settings")
+
+# filename = sublime.packages_path() + "\\LessWatcher\\" + plugin + ".sublime-settings"
+# with open(filename, 'rU') as f: settings = f.read()
+# print settings
+
 
 def warning(message):
-	print "[less-watch] %s" % message 
+	print "[less-watch] %s" % message
+	sublime.status_message("[less-watch] %s" % message)
 
 class HTTPMessage(object):
 	def __init__(self, message=None, silent=1):
@@ -12,7 +21,7 @@ class HTTPMessage(object):
 		self.url = '/less_watch'
 		self.headers = {'Content-type': 'text/plain', 'Accept': 'text/plain'}
 		self.silent = silent
-		# s = sublime.load_settings("Preferences.sublime-settings")
+		# settings = sublime.load_settings("LessWatcher.sublime-settings")
 		# current = s.get("font_size", 10)
 		if message is not None: self.send(message)
 
@@ -127,6 +136,7 @@ class BlockParser(object):
 
 	def get_parents(self, position):
 		parents, in_block = [], 0
+		# TODO: should convert to generator, like above
 		while position > 0:
 			a, b = self.content.rfind('{', 0, position), self.content.rfind('}', 0, position)
 			position = max(a, b)
@@ -161,7 +171,7 @@ class EditListener(sublime_plugin.EventListener):
 		# get the url of this file (self.files should have it if we watched it), if none, ignore it
 		filename = self.files.get(filename, None)
 		if not filename: return
-		message = "%s\n/refresh %s" % (filename, status)
+		message = "%s\n/less_refresh %s" % (filename, status)
 		response, body = self.message.send(message)
 
 	def on_activated(self, view):
