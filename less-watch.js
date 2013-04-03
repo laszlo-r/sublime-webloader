@@ -7,22 +7,9 @@ function LessWatch() {
 		this.server = { host: 'localhost', port: 9000, url: '/less_updates' };
 		this.debug = 1
 
-		this.file_pattern = /(?:https?:)?\/\/[\w\.-]+(\/.+\.(?:less|css|js))(?:\?(?:[\w&=_-]*&)*server=([\w\.-]+)?(?::([0-9]{3,})?)?(\/[\w\/_-]*)?(?:&|$)?)?/;
-
-		// regexp for extracting the path+filename and the optional server=... definition from an url
-		var domain = "(?:https?:)?//[\\w\\.-]+", 
-			path = "(/.+\\.(?:less|css|js))", 
-			params = "\\?(?:[\\w&=_-]*&)*", 
-			server_info = "server=([\\w\\.-]+)?(?::([0-9]{3,})?)?(/[\\w/_-]*)?", 
-			ending = "(?:&|$)?", 
-			pattern = domain + path + "(?:" + params + server_info + ending + ")?"
-
-		this.file_pattern = RegExp(pattern)
-		// this.test_regexp(this.file_pattern, 5); // pattern, expected number of pieces
-
-		var params = this.collect_files(), files = params[0]
-		if (params[1])
-			params[1].each(function(a) { if (a[1]) this.server[a[0]] = a[1]; }, this);
+		var params = this.collect_files();
+		this.files = params.files;
+		if (params.server) params.server.each(function(a) { if (a && a[1]) this.server[a[0]] = a[1]; }, this);
 
 		this.setup_commands();
 		this.setup_callbacks();
@@ -31,32 +18,82 @@ function LessWatch() {
 	}
 
 	this.collect_files = function() {
+		// regexps for extracting the path+filename and the optional server=... definition from an url
+		var domain = "(?:https?:)?//[\\w\\.-]+", 
+			path = "(/.+\\.(?:less|css|js))", 
+			params = "\\?(?:[\\w&:=_-]*&)*", 
+			server_param = "server=([\\w\\.-]+)?(?::([0-9]{3,})?)?(/[\\w/_-]*)?", 
+			ending = "(?:&|$)?", 
+			pattern = domain + path + "(?:" + params + server_param + ending + ")?"
 
-		var get_file_info = function(a, url) { return (url = a.href || a.src) && (a = url.match(this)) && a.slice(1); };
+		this.file_pattern = RegExp(pattern)
+		// this.test_regexp(this.file_pattern, 5); // pattern, expected number of pieces
 
-		var files = $A(document.getElementsByTagName('link')).map(get_file_info, this.file_pattern).filter(this.self), 
-			server_info = files.filter(function(a) { return a && a.slice(1).any(); }).first(), 
+		var get_file_info = function(a) { return (a = a.href || a.src) && (a = a.match(this)) && a.slice(1); }, 
+			files = document.head.childElements().map(get_file_info, this.file_pattern).filter(this.self);
+
+		var server_info = files.filter(function(a) { return a && a.slice(1).any(); }).first(), 
 			server_params = ['host', 'port', 'url'];
 
 		files = files.map(function(a) { return a[0]; });
 		if (server_info)
 			server_info = server_info.slice(1).map(function(a, i) { return a && [server_params[i], a]; }).without(0);
 
-		return [files, server_info];
+		return { files: files, server: server_info };
 	}
 
-	this.match_file = function(file) {
-
+	this.request_watching = function() {
+		this.log('watching ' + this.files.join(', '));
+		this.socket.send('watch\n' + this.files.join('\n'))
 	}
 
-	this.add_command = function(cmd, f) { this.commands[cmd] = f; }
+	// file can be an element with href or src, or a file handle from this.files (even a partial match)
+	// returns the basepath + filename + extension like this:
+	// "http://domain.com/some/path/this.file?with=params" -> "/some/path/this.file"
+	this.file_handle = function(file) {
+		if (typeof file !== 'string') file = file.href || file.src;
+		if (file.indexOf('//') > -1) return (file = file.match(this.file_pattern)) && file[1] || '';
+		return this.files.filter(function(a) { return a.endsWith(file); }).first() || ''
+	}
+
+	this.file_element = function(filehandle) {
+		if (!filehandle.startsWith('/')) filehandle = this.file_handle(filehandle)
+		var matches = function(a) { return (a.href || a.src || '').split('?')[0].endsWith(filehandle); };
+		return document.head.childElements().filter(matches).first();
+	}
+
+	this.parse_command = function(message) {
+		if (this.debug > 1) this.log(message)
+
+		var tmp = message.data.split('\n', 2), 
+			content = message.data.slice(tmp[0].length + tmp[1].length + 2), 
+			file = tmp[0], 
+			cmd = (tmp[1] || '').strip(), 
+			single_arg = cmd.length && cmd.indexOf('"') > -1 && cmd.indexOf(' ');
+
+		// examine the command line:
+		// false: no '"' -- split by spaces
+		// 0 (no length) or -1 (no space) -- single array
+		// else: split by first space, let the command method sort out arguments
+
+		cmd = single_arg === false ? 
+			cmd.split(' ').without('') :
+			(single_arg <= 0 ? [cmd] : [cmd.slice(0, single_arg), cmd.slice(single_arg + 1)])
+
+		this.command(cmd, file, content, message);
+	}
 
 	this.command = function(cmd, file, content, message) {
-		if (typeof cmd === 'string') cmd = [cmd]
+		var el;
+		if (typeof cmd === 'string') cmd = [cmd];
+		if (file && typeof file === 'string' && (el = this.file_element(file))) file = el;
+
 		return this.commands[cmd[0]] ?
 			this.commands[cmd[0]].apply(this, [cmd, file, content]) : 
 			this.debug && this.log('unknown command "%s" for "%s"\n-- content:\n%s\n-- message:', cmd.join(' '), file, content, message);
 	}
+
+	this.add_command = function(cmd, f) { this.commands[cmd] = f; }
 
 	this.setup_commands = function() {
 		this.commands = {}
@@ -70,71 +107,99 @@ function LessWatch() {
 		})
 
 		this.add_command('reload_file', function(cmd, file, content) {
-			var matches = function(a) { return (a.href || a.src || '').endsWith(file); }, 
-				clone = function(a) {
-					var e = document.createElement(a.tagName);
-					$A(a.attributes).each(function(x, i) { e[x.name] = x.value; });
-					e.className = (e.className || '') + ' reloaded';
-					return e;
-				}, 
-				reload = function(a) {
-					this.log('reloading %s %s', a.tagName.toLowerCase(), a.href || a.src);
-					var e = clone(a);
-					a.parentNode.replaceChild(e, a);
-					this.onreload(e);
-				}, 
-				items = document.head.childElements().filter(matches).each(reload, this);
+			if (!file.href && !file.src) return this.log('cannot find the element of "%s"', file)
+
+			var clone = function(a) {
+				var e = document.createElement(a.tagName), attr = (a.href ? 'href' : 'src');
+				$A(a.attributes).each(function(x, i) { e[x.name] = x.value; });
+				e.className = (e.className || '') + ' reloaded';
+				e[attr] = e[attr] + (e[attr].indexOf('?') > -1 ? '&' : '?') + this.stime();
+				return e;
+			}
+
+			this.log('reloading %s %s (%s)', file.tagName.toLowerCase(), file.href || file.src, cmd[1]);
+			var twin = clone.apply(this, [file]);
+			file.parentNode.replaceChild(twin, file);
+			this.onreload(twin, cmd);
 		})
 
 		this.add_command('less_update', function(cmd, file, content) {
 			if (content) this.less_update(file, content);
 		})
 
-		this.add_command('less_refresh', function(cmd, file, content) {
-			if (!less) return this.log('cannot refresh ' + file + ', no less object found (is a less.js included?)')
-			this.log('refreshing ' + file + (cmd[1] ? ' (it was ' + cmd[1] + ')' : ''));
-			this.remove_existing_styles(file);
-			if (less) less.refresh(1); // refresh has a reload flag
-		})
-
 	}
 
 	this.setup_callbacks = function() {
 		this.onreloads = {
-			less: function(file, item) {
-				// if (item.rel && item.rel === 'stylesheet/less') less.refresh(1);
-				console.log(item);
-				console.log(item.nextSibling);
-				this.remove_existing_styles()
+			'*': function(item, file, cmd) {
+				var len = this.stime().length, attr = item.href ? 'href' : 'src', url = item[attr];
+				if (url.slice(-len).match(/[0-9]{2}:[0-9]{2}:[0-9]{2}$/)) {
+					// this.log('removing hash from url: %s', url);
+					item[attr] = url.slice(0, url.slice(-len - 1, -len) === '?' ? -len - 1 : -len);
+				}
+			}, 
+			less: function(item, file, cmd) {
+				// this.log('reloaded less file:', item);
+				var ref = this, style = item.nextSibling, url = item.href;
+				if (!style.id || !style.id.startsWith('less:'))
+					return this.log('unnamed style element:', style);
+
+				this.remove_custom_styles(file);
+
+				new Ajax.Request(url, {
+					onFailure: function(response) {
+						ref.log('could not refresh %s!', url);
+					}, 
+					onSuccess: function(response) {
+						style.textContent = ref.less_parse(response.responseText);
+					}
+				});
 			}
 		}
+
 		this.onupdates = {
 		}
 	}
 
-	this.call_event = function(event, item) {
-		var file = item.href || item.src, ext = file.split('.').pop();
-		this.log('on%s %s:', event, item.tagName.toLowerCase(), item);
+	this.call_event = function(event, item, cmd) {
+		var file = this.file_handle(item), ext = file.split('.').pop();
+		if (this.debug > 1)
+			this.log('on%s %s:', event, item.tagName.toLowerCase(), item);
 		event = 'on' + event + 's';
-		return this[event][ext] && this[event][ext].apply(this, [file, item]);
+		this[event]['*'].apply(this, [item, file, cmd]);
+		return this[event][ext] && this[event][ext].apply(this, [item, file, cmd]);
 	}
 
-	this.onreload = function(item) { return this.call_event('reload', item); }
-	this.onupdate = function(item) { return this.call_event('update', item); }
+	this.onreload = function(item, cmd) { return this.call_event('reload', item, cmd); }
+	this.onupdate = function(item, cmd) { return this.call_event('update', item, cmd); }
 
 
 	/// less and css-related stuff
 
-	this.style_name = function(file, id) { return 'less-watch:' + file + (id ? ':' + id.replace(/ /g, '-') : ''); }
-
-	this.styles_matching = function(file) {
-		file = this.style_name(file)
-		return $A(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(file); });
+	this.less_handle = function(file) {
+		return (file = this.file_handle(file)) && 'less:' + file.replace(/[^\w\.-]+/g, '-').slice(1, file.lastIndexOf('.'));
 	}
 
-	this.remove_existing_styles = function(file, id) {
-		var styles = this.styles_matching(file, id);
+	this.custom_less_handle = function(file, id) {
+		return this.format('less-watch:%s:%s', file, (id ? id.replace(/ /g, '-') : ''));
+	}
+
+	this.less_element = function(file) {
+		var handle = this.less_handle(file);
+		return $A(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(handle); }).first();
+	}
+
+	this.custom_styles = function(file, id) {
+		var handle = this.custom_less_handle(file, id);
+		return $A(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(handle); });
+	}
+
+	this.remove_custom_styles = function(file, id) {
+		// remove every style for this file, if id not specified
+		var styles = this.custom_styles(file, id);
 		if (!id) return styles.each(function(a) { a.parentNode.removeChild(a); }).length
+
+		// in every custom style for this file, remove definitions for only that id
 
 		var start = id + ' {\n', ending = "}\n";
 		var has_this_id = function(a) { return a.textContent.indexOf('\n' + id) > -1 || a.textContent.slice(0, id.length) === id; }
@@ -148,26 +213,23 @@ function LessWatch() {
 	}
 
 	this.less_update = function(file, styles) {
-		var ref = this, parser = new less.Parser(), css, id
+		var sheet = this.less_element(file = this.file_handle(file)),
+			id = styles.slice(0, styles.indexOf('{')).strip(), // css selector part
+			css, next
 
-		id = styles.slice(0, styles.indexOf('{')).strip(); // css selector part
-		this.remove_existing_styles(file, id)
+		this.remove_custom_styles(file, id);
 
-		// prefix + less_file_name + css-selector-part
-		// TODO: hashing?
-		id = 'less-watch:' + file + id.replace(/ /g, '-')
+		id = this.custom_less_handle(file, id);
+		styles = this.less_parse(styles);
 
-		if (this.debug > 1)
-			this.log('updating ' + file.slice(file.lastIndexOf('/') + 1) + ': ' + styles)
-		parser.parse(styles, function(err, tree) { ref.parse(err, tree); });
+		if (this.debug > 1) this.log('updating %s with "%s"', file.slice(file.lastIndexOf('/') + 1), styles)
 
-		if (!this.css) return;
-
-		if ((css = document.getElementById(id)) === null) {
+		// lookup or make a style element, put after the "less:" element
+		if (!(css = document.getElementById(id))) {
 			css = document.createElement('style');
 			css.type = 'text/css';
 			css.id = id;
-			document.getElementsByTagName('head')[0].parentNode.insertBefore(css, null);
+			sheet.parentNode.insertBefore(css, sheet.nextSibling);
 		}
 
 		if (css.styleSheet) { // IE
@@ -184,10 +246,13 @@ function LessWatch() {
 		}
 	}
 
-	this.parse = function(err, tree) {
-		this.css = '';
-		if (err) return this.log(err.message + ' (column ' + err.index + ')');
-		this.css = tree.toCSS();
+	this.less_parse = function(styles) {
+		if (!less || !less.Parser) return this.log('no less object found, is a less.js included?');
+		var err, result
+		(new less.Parser).parse(styles, function(err, tree) { result = [err, tree]; });
+		return (err = result[0]) ? 
+			this.log('less parser: ' + err.message + ' (column ' + err.index + ')') : 
+			result[1].toCSS();
 	}
 
 
@@ -201,33 +266,9 @@ function LessWatch() {
 		var ref = this, socket = this.socket = new WebSocket(url); 
 
 		var methods = [
-			function onopen() {
-				var files = this.files.map(function(a) { return a.replace(/https?:\/\/[\w\.-]+/, ''); });
-				this.log('watching ' + files.join(', '));
-				this.socket.send('watch\n' + files.join('\n'))
-			},
-
+			function onopen() { this.request_watching(); },
 			function onclose() { this.log('websocket closed'); },
-
-			function onmessage(message) {
-				if (this.debug > 1) this.log(message)
-
-				var tmp = message.data.split('\n', 2), 
-					content = message.data.slice(tmp[0].length + tmp[1].length + 2), 
-					file = tmp[0], 
-					cmd = (tmp[1] || '').strip(), 
-					single_arg = cmd.length && cmd.indexOf('"') > -1 && cmd.indexOf(' ');
-
-				// false: no '"' -- split by spaces
-				// 0 (no length) or -1 (no space) -- single array
-				// else: split by first space, let the command method sort out arguments
-				cmd = single_arg === false ? 
-					cmd.split(' ').without('') :
-					(single_arg <= 0 ? [cmd] : [cmd.slice(0, single_arg), cmd.slice(single_arg + 1)])
-
-				this.command(cmd, file, content, message);
-
-			}
+			function onmessage(message) { this.parse_command(message); }
 		]
 
 		methods.each(function(func) { socket[func.name] = function() { func.apply(ref, arguments); } });
@@ -236,7 +277,7 @@ function LessWatch() {
 	}
 
 	this.reconnect = function(server) {
-		if (server) this.server = server
+		if (server) this.server = server;
 		return (this.socket && this.socket.close()) || this.connect();
 	}
 
@@ -255,11 +296,13 @@ function LessWatch() {
 		return hash;
 	}
 
+	this.stime = function() { return (new Date()).toTimeString().slice(0, 8); }
+
 	this.log = function() {
 		if (!this.debug || !arguments.length) return;
 
 		// add a prefix, attached to the first argument if it's a string
-		var prefix = '[less-watch ' + (new Date()).toTimeString().slice(0, 8) + '] ',
+		var prefix = '[less-watch ' + this.stime() + '] ',
 			add = (typeof arguments[0] === 'string' ? 1 : 0)
 			args = [prefix + (add ? arguments[0] : '')].concat(Array.prototype.slice.call(arguments, add));
 		return console.log.apply(console, args);
@@ -315,10 +358,6 @@ function LessWatch() {
 
 		var generate = function(list, prefix) {
 			return function (a) { return list.map(function(x) { return a + prefix + x; }); };
-		}
-		var flatten = function(list, prefix) {
-			return function (a) {  }
-			return generate(list, prefix).flatten();
 		}
 
 		// paths get a '/' prefix; query params a '?'; etc

@@ -10,11 +10,22 @@ Uses Tornado to start a local http server; websockets to reach the server from t
 
 How to use:
 -----------
-- install the plugin (no package control yet)
+- sorry, no package control yet; you have to install manually, and have python installed
+- copy the LessWatcher folder into your Sublime Packages folder (you may have to restart Sublime)
+- put the rest of the files into a folder in your docroot
 - run `python watch-server.py` in whatever shell you prefer
-- include your .less file on the page, and a less.js, a prototype.js, and the less-watch.js as well
-- if you want, you can redefine the server in the link tag: `<link rel='stylesheet/less' href='your.less?server=localhost:9000' type='text/css' />`
-- edit your .less files, and check the css updates in the javascript console
+- open the index.html in a browser (there should be some connection info in the javascript console)
+- edit one of the .less files in the package with Sublime, and see the changes on the page
+
+More options:
+-------------
+- to use it in your own project, you have to include a less.js, a prototype.js, and the less-watch.js (the included versions were tested)
+- if you want, you can redefine the server address in a link or script tag (localhost:9000 by default)
+  - `<link rel='stylesheet/less' href='your.less?server=localhost:8080/someurl' type='text/css' />`
+  - `<script src='prototype.js?server=localhost:8080/someurl'></script>`
+- start the server with the same port: `python watch-server.py 8080`
+- for debugging, check the javascript console, the server window, and the Sublime 2 console (ctrl + `)
+
 
 TODO:
 -----

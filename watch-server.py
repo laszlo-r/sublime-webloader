@@ -152,7 +152,7 @@ def load_settings():
 def start_tornado(settings):
 	"""Starts up a WatchApp (tornado.web.Application) on localhost:9000."""
 
-	print json.dumps(settings, indent=4, sort_keys=1)
+	# print json.dumps(settings, indent=4, sort_keys=1)
 
 	application = WatchApp([
 		('/' + settings.urls.plugin, PluginHandler),
@@ -162,7 +162,6 @@ def start_tornado(settings):
 	application.listen(settings.port)
 	application.debug_level = settings.debug_level
 	application.debug("Started watch server on localhost:%d, waiting for connections. Ctrl-c or close window to stop." % settings.port)
-	return
 	tornado.ioloop.IOLoop.instance().start()
 
 
