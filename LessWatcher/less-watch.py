@@ -5,20 +5,18 @@ from functools import partial
 
 plugin = __name__.title().replace('-', '')
 settings = sublime.load_settings("LessWatcher.sublime-settings")
-
-# filename = sublime.packages_path() + "\\LessWatcher\\" + plugin + ".sublime-settings"
-# with open(filename, 'rU') as f: settings = f.read()
-# print settings
+debug_level = settings.get('debug_level') or 0
 
 
-def warning(message):
+def warning(message, level=1):
+	if debug_level < level: return
 	print "[less-watch] %s" % message
 	sublime.status_message("[less-watch] %s" % message)
 
 class HTTPMessage(object):
 	def __init__(self, message=None, silent=1):
 		self.host = 'localhost:9000'
-		self.url = '/less_watch'
+		self.url = '/watch_server'
 		self.headers = {'Content-type': 'text/plain', 'Accept': 'text/plain'}
 		self.silent = silent
 		# settings = sublime.load_settings("LessWatcher.sublime-settings")
@@ -154,57 +152,106 @@ class EditListener(sublime_plugin.EventListener):
 		self.active = False
 		self.files = {}
 
-	def update_files(self, response, body):
+		self.default_commands = {
+			'open': 'reload_file', 
+			'save': 'reload_file', 
+			'close': 'reload_file', 
+			'edit': 'update', 
+		}
+
+		convert = lambda x: x if type(x) is list else [x, 0]
+		self.watch = dict([ext, dict(map(convert, events))] for ext, events in settings.get('watch_events', {}).iteritems())
+
+	def filename(self, f):
+		return (f if type(f) in [str, unicode] else (f.file_name() or '') if type(f) is sublime.View else '').replace(os.path.sep, '/')
+
+	def update_files(self):
+		# active 1 means a view has been activated; no files means a freshly (re)loaded plugin
+		if self.active is not 1 and self.files: return 2 # already have a fresh filelist
+
+		# ask for a fresh file list (send an empty message, expect a file on each line)
+		# if no server, or no filelist, deactivate until the next window focus (to avoid shooting these empty requests)
+		response, body = self.message.send('', silent=1)
+		result = self.check_file_update(response, body)
+		if not result: self.on_deactivated()
+		else: self.active = result
+		return result
+
+	def check_file_update(self, response, body):
 		if not response or response.status != 200:
 			return warning('watch server not found, ignoring edits temporarily.')
 		body = filter(None, map(str.strip, body.split('\n')))
 		if not body:
 			if not self.files: warning('no files to watch yet (refresh your browser, and check the javascript console).')
 			return
+		if debug_level > 1: warning('new file list: ' + ', '.join(body))
+		elif not self.files: warning('watching files: ' + ', '.join(map(lambda x: x.rsplit('/', 2).pop(), body)))
 		self.files = dict.fromkeys(body, 1)
-		warning('watching files: ' + ', '.join(body))
-		return 1
+		return True # be active, but don't ask for new files
 
-	def refresh_file(self, view=None, status=''):
-		filename = (view if type(view) is str else (view.file_name() or '')).replace(os.path.sep, '/')
-		if not filename: return warning('an unknown file should have been refreshed (skipping this refresh).')
-		# get the url of this file (self.files should have it if we watched it), if none, ignore it
+	def watching_file_type(self, filename='', event=''):
+		filename = self.filename(filename)
+		if not filename: return 0
+		events = self.watch.get(filename.rsplit('.', 2).pop())
+		return events.get(unicode(event)) if events and event else events
+
+	def watching_file(self, filename):
+		filename = self.filename(filename)
+
+		# check if this file matches one of the watched files (flexibly, /web/docroot/some/path.less matches /some/path.less)
+		# if found, either store the localfile: filehandle pair, or flag as non-watched
+		# after a window reactivation, the first watched event will request a fresh file list, and check the file again
+		if filename not in self.files:
+			self.files[filename] = next((handle for handle, watched in self.files.iteritems() if watched and filename.endswith(handle)), None)
+
+		# None/False/0: a file type which should be watched (see settings), but no webclients asked for watching it
+		# 1: watched file, but no event happened since the last window activation
+		# str/unicode: a watched file's filehandle (webclients track files by basepath + filename)
+		return self.files[filename]
+
+	def file_event(self, filename, event, custom_arg=''):
+		filename = self.filename(filename)
+		if not filename: return warning('an unknown file\'s %sevent was ignored.' % (event and event + ' '))
+
+		command = self.watching_file_type(filename, event) or self.default_commands.get(event)
+		if not command: return
+
+		# check if the file list is fresh, and if this file is watched
+		if not self.update_files() or not self.watching_file(filename): return
+
+		# get the url of this file (self.files should have it if we watched it), if none, skip it
 		filename = self.files.get(filename, None)
 		if not filename: return
-		message = "%s\n/less_refresh %s" % (filename, status)
-		response, body = self.message.send(message)
+		response, body = self.message.send("%s\n%s %s" % (filename, command, custom_arg))
 
 	def on_activated(self, view):
-		if (view.file_name() or '').endswith('.less'): self.active = 1
+		self.active = int(bool(self.watching_file_type(view)))
 
-	def on_deactivated(self, view): self.active = False
+	def on_deactivated(self, view=None):
+		self.active = False
 
-	def on_post_save(self, view): self.refresh_file(view, 'saved')
+	def on_load(self, view):
+		self.file_event(view, 'open', 'opened')
 
-	def on_close(self, view): self.refresh_file(view, 'closed')
+	def on_post_save(self, view):
+		self.file_event(view, 'save', 'saved')
+
+	def on_close(self, view):
+		self.file_event(view, 'close', 'closed')
 
 	def on_modified(self, view):
 		if not self.active: return
 
+		# see if edit updates are enabled for this file type
+		# this currently only makes sense for less and css files; the code below only works with these
 		filename = view.file_name() or ''
-		if not filename.endswith('.less'): return
+		if not filename or not self.watching_file_type(filename, 'edit'): return
 
-		# active 1 or no files means we should ask for a fresh file list (send an empty message, expect a file on each line)
-		# if no server connection or no files, deactivate until the next window focus (to avoid shooting lots of requests)
-		if self.active is 1 or not self.files:
-			response, body = self.message.send('', silent=1)
-			if not self.update_files(response, body): return self.on_deactivated(view)
-			self.active = True
-
+		# check if there are any files to watch, and if this file is watched
+		if not self.update_files() or not self.watching_file(filename): return
 		filename = filename.replace(os.path.sep, '/')
-		# check if this file matches one of the watched files (/docroot/some/path.less matches /some/path.less)
-		# either store the matched web-filename, or flag it as non-watched (window reactivation resets the file list anyway)
-		if filename not in self.files:
-			self.files[filename] = next((name for name, watched in self.files.iteritems() if watched and filename.endswith(name)), None)
-		if not self.files[filename]: return
 
-		selections = view.sel()
-		cursor = selections[0]
+		cursor = view.sel()[0]
 
 		# TODO: see in readme
 		# don't move until the line is valid (no full-file parsing or networking)
@@ -213,16 +260,23 @@ class EditListener(sublime_plugin.EventListener):
 		# line = view.substr(view.line(cursor))
 		# if not self.parser.validate(line, cursor.begin() - view.line(cursor).begin()): return
 
-		# get the id and contents of the current block, see if it changed, ignore if not
+		# get the id and contents of the current css block
 		position = cursor.begin()
 		self.parser.content = view.substr(sublime.Region(0, view.size()))
 		info = self.parser.block_info(position)
-		if not info.id or self.last_change.block == info.block: return
 
-		# store and send changes
+		# should trust the sublime api that there WAS a modification
+		# should track changes per file; check if the change matters, whitespace changes don't matter for example
+		# if not info.id or self.last_change.block == info.block: return
+
+		# show the active line when updating (the actual update sent to the server can be multiple lines)
+		line = view.substr(view.line(cursor))
+		sublime.status_message("[less-watch: updating line] %s" % line)
+
+		# store and send the change: filehandle\ncommand\ncontents
 		self.last_change = info
-		response, body = self.message.send("%s\n%s" % (self.files[filename], info), silent=1)
+		response, body = self.message.send("\n".join([self.files[filename], 'update', str(info)]), silent=1)
 
-		# a non-empty response means an updated file list
+		# a non-empty response means a fresh file list, so refresh it
 		if response.length: self.update_files(response, body)
 

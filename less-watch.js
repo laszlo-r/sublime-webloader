@@ -3,18 +3,14 @@
 function LessWatch() {
 
 	this.init = function() {
+		// console.clear();
+		this.debug = 1;
 
-		this.server = { host: 'localhost', port: 9000, url: '/less_updates' };
-		this.debug = 1
-
-		var params = this.collect_files();
-		this.files = params.files;
-		if (params.server) params.server.each(function(a) { if (a && a[1]) this.server[a[0]] = a[1]; }, this);
-
+		this.collect_files();
 		this.setup_commands();
 		this.setup_callbacks();
-		this.connect();
 
+		this.connect();
 	}
 
 	this.collect_files = function() {
@@ -32,18 +28,27 @@ function LessWatch() {
 		var get_file_info = function(a) { return (a = a.href || a.src) && (a = a.match(this)) && a.slice(1); }, 
 			files = document.head.childElements().map(get_file_info, this.file_pattern).filter(this.self);
 
-		var server_info = files.filter(function(a) { return a && a.slice(1).any(); }).first(), 
-			server_params = ['host', 'port', 'url'];
+		this.check_server_params(files);
 
-		files = files.map(function(a) { return a[0]; });
-		if (server_info)
-			server_info = server_info.slice(1).map(function(a, i) { return a && [server_params[i], a]; }).without(0);
+		this.files = files.map(function(a) { return a[0]; });
+	}
 
-		return { files: files, server: server_info };
+	this.check_server_params = function(files) {
+		var server = { host: 'localhost', port: 9000, url: '/file_updates' }, 
+			server_params = ['host', 'port', 'url'], 
+			scriptname = '/less-watch.js';
+
+		var param_name = function(x, i) { return x && [server_params[i], x]; }, 
+			get_params = function(a) { return a && a[0] && a[0].endsWith(scriptname) && a.slice(1).map(param_name).without(undefined); }, 
+			add_params = function(a) { if (a && a[1]) this[a[0]] = a[1]; };
+
+		(files.map(get_params).without(0).first() || []).each(add_params, server);
+		this.server = server;
 	}
 
 	this.request_watching = function() {
-		this.log('watching ' + this.files.join(', '));
+		if (this.debug > 1) this.log('watching ' + this.files.join(', '));
+		else this.log('watching ' + this.files.map(function(a) { return a.slice(a.lastIndexOf('/') + 1); }).join(', '));
 		this.socket.send('watch\n' + this.files.join('\n'))
 	}
 
@@ -63,7 +68,7 @@ function LessWatch() {
 	}
 
 	this.parse_command = function(message) {
-		if (this.debug > 1) this.log(message)
+		if (this.debug > 2) this.log(message)
 
 		var tmp = message.data.split('\n', 2), 
 			content = message.data.slice(tmp[0].length + tmp[1].length + 2), 
@@ -84,13 +89,14 @@ function LessWatch() {
 	}
 
 	this.command = function(cmd, file, content, message) {
-		var el;
+		var item = file && typeof file === 'string' ? this.file_element(file) : file;
 		if (typeof cmd === 'string') cmd = [cmd];
-		if (file && typeof file === 'string' && (el = this.file_element(file))) file = el;
 
 		return this.commands[cmd[0]] ?
-			this.commands[cmd[0]].apply(this, [cmd, file, content]) : 
-			this.debug && this.log('unknown command "%s" for "%s"\n-- content:\n%s\n-- message:', cmd.join(' '), file, content, message);
+			this.commands[cmd[0]].apply(this, [cmd, item, content]) : 
+			this.debug && this.log(
+				'unknown command "%s" for "%s"\n-- content:\n%s\n-- message:', 
+				cmd.join(' '), file, content, message);
 	}
 
 	this.add_command = function(cmd, f) { this.commands[cmd] = f; }
@@ -112,19 +118,28 @@ function LessWatch() {
 			var clone = function(a) {
 				var e = document.createElement(a.tagName), attr = (a.href ? 'href' : 'src');
 				$A(a.attributes).each(function(x, i) { e[x.name] = x.value; });
-				e.className = (e.className || '') + ' reloaded';
+				e.className += (e.className ? ' ' : '') + 'reloaded:' + this.stime();
 				e[attr] = e[attr] + (e[attr].indexOf('?') > -1 ? '&' : '?') + this.stime();
 				return e;
 			}
 
-			this.log('reloading %s %s (%s)', file.tagName.toLowerCase(), file.href || file.src, cmd[1]);
 			var twin = clone.apply(this, [file]);
+			this.log('reloading %s %s (%s)', twin.tagName.toLowerCase(), twin.href || twin.src, cmd[1] || 'no reason');
 			file.parentNode.replaceChild(twin, file);
 			this.onreload(twin, cmd);
 		})
 
-		this.add_command('less_update', function(cmd, file, content) {
-			if (content) this.less_update(file, content);
+		var reload_file = function(cmd, file, content) {
+			this.command(['reload_file', 'was ' + cmd[0]], file)
+		}
+
+		this.add_command('opened', reload_file);
+		this.add_command('saved', reload_file);
+		this.add_command('closed', reload_file);
+
+		this.add_command('update', function(cmd, file, content) {
+			if (file.type === 'text/css' && content) this.less_update(file, content);
+			else console.log(cmd, file, content);
 		})
 
 	}
@@ -134,15 +149,22 @@ function LessWatch() {
 			'*': function(item, file, cmd) {
 				var len = this.stime().length, attr = item.href ? 'href' : 'src', url = item[attr];
 				if (url.slice(-len).match(/[0-9]{2}:[0-9]{2}:[0-9]{2}$/)) {
-					// this.log('removing hash from url: %s', url);
-					item[attr] = url.slice(0, url.slice(-len - 1, -len) === '?' ? -len - 1 : -len);
+					if (this.debug > 1)
+						this.log('removing hash from url: %s', url);
+					len = -len - (url.slice(-len - 1, -len) === '?' || url.slice(-len - 1, -len) === '&' ? 1 : 0);
+					item[attr] = url.slice(0, len);
 				}
 			}, 
 			less: function(item, file, cmd) {
 				// this.log('reloaded less file:', item);
 				var ref = this, style = item.nextSibling, url = item.href;
-				if (!style.id || !style.id.startsWith('less:'))
-					return this.log('unnamed style element:', style);
+
+				// if neither a .less extension, nor a less declaration, ignore it
+				if (!((item.rel && item.rel === 'stylesheet/less') || file.slice(file.lastIndexOf('.') + 1) === 'less'))
+					return
+				// use the less-generated style element for updating
+				if (!style.id || (!style.id.startsWith('less:') && !style.id.startsWith('less-watch:')))
+					return this.log('when updating %s, found this style:', file, style);
 
 				this.remove_custom_styles(file);
 
@@ -151,11 +173,14 @@ function LessWatch() {
 						ref.log('could not refresh %s!', url);
 					}, 
 					onSuccess: function(response) {
+						if (debug > 1)
+							ref.log('ajax: updating %s with %s', url, response.responseText)
 						style.textContent = ref.less_parse(response.responseText);
 					}
 				});
 			}
 		}
+		this.onreloads.css = this.onreloads.less;
 
 		this.onupdates = {
 		}
@@ -195,6 +220,9 @@ function LessWatch() {
 	}
 
 	this.remove_custom_styles = function(file, id) {
+		if (this.debug > 1)
+			this.log('removing custom styles for "%s"', this.custom_less_handle(file, id));
+
 		// remove every style for this file, if id not specified
 		var styles = this.custom_styles(file, id);
 		if (!id) return styles.each(function(a) { a.parentNode.removeChild(a); }).length
@@ -213,24 +241,30 @@ function LessWatch() {
 	}
 
 	this.less_update = function(file, styles) {
-		var sheet = this.less_element(file = this.file_handle(file)),
+		var handle = this.file_handle(file), 
+			sheet = this.less_element(handle),
 			id = styles.slice(0, styles.indexOf('{')).strip(), // css selector part
 			css, next
 
-		this.remove_custom_styles(file, id);
+		this.remove_custom_styles(handle, id);
 
-		id = this.custom_less_handle(file, id);
+		id = this.custom_less_handle(handle, id);
 		styles = this.less_parse(styles);
 
-		if (this.debug > 1) this.log('updating %s with "%s"', file.slice(file.lastIndexOf('/') + 1), styles)
+		if (this.debug > 1) 
+			this.log('updating "%s", style id "%s", with:\n%s', handle.slice(handle.lastIndexOf('/') + 1), id, styles)
 
 		// lookup or make a style element, put after the "less:" element
 		if (!(css = document.getElementById(id))) {
 			css = document.createElement('style');
 			css.type = 'text/css';
 			css.id = id;
-			sheet.parentNode.insertBefore(css, sheet.nextSibling);
+			next = (next = file.nextSibling) && next.id && next.id.startsWith('less:') ? next.nextSibling : next;
+			file.parentNode.insertBefore(css, next);
 		}
+		// this.log('file element:', sheet)
+		// this.log('less element:', sheet)
+		// this.log('less-watch element:', css)
 
 		if (css.styleSheet) { // IE
 			try {

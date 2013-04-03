@@ -19,11 +19,11 @@ How to use:
 
 More options:
 -------------
-- to use it in your own project, you have to include a less.js, a prototype.js, and the less-watch.js (the included versions were tested)
-- if you want, you can redefine the server address in a link or script tag (localhost:9000 by default)
-  - `<link rel='stylesheet/less' href='your.less?server=localhost:8080/someurl' type='text/css' />`
-  - `<script src='prototype.js?server=localhost:8080/someurl'></script>`
-- start the server with the same port: `python watch-server.py 8080`
+- to use it in your own project, include a less.js, a prototype.js, and the less-watch.js (the included versions were tested)
+  - be sure to put less-watch.js _after_ any link or script tags you want to watch!
+- customize settings in Packages/LessWatcher/LessWatcher.sublime-settings
+- if you change the server address, tell the script: `<script src='less-watch.js?server=localhost:9000/file_updates'></script>`
+- if the server can't find the Sublime data folder (the one with `Packages`), tell it: `python watch-server.py /home/sublime2data`
 - for debugging, check the javascript console, the server window, and the Sublime 2 console (ctrl + `)
 
 

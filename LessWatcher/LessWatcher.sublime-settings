@@ -1,10 +1,90 @@
 {
+	// Defines how the watch server can be reached, and what urls it serves.
+	// The plugin url handles the http requests from the plugin.
+	// The websocket url handles websocket connections from less-watch.js.
+
 	"host": "localhost", 
 	"port": 9000, 
 	"urls": {
-		"plugin": "less_watch", 
-		"websocket": "less_updates"
+		"plugin": "watch_server", 
+		"websocket": "file_updates"
 	}, 
+
+
+	// Defines what types of files should be watched, and what should happen at events.
+
+	// By default, open/close/save events reload the file on the page, running js, 
+	// resetting css, and re-parsing less files. Edit events are only supported for 
+	// less/css currently, these send updates while typing, use them sanely.
+
+	// No need to change these settings if you only want to watch js/css/less changes.
+
+	"watch_events": {
+		// These are watched by default.
+		"less": ["edit", "open", "close", "save"], 
+		"css": ["edit", "open", "close", "save"], 
+		"js": ["save"], 
+
+		// These only work if you enable them in the client_watchlist setting below.
+		"html": ["save"], 
+		"py": ["close", "save"], 
+		"php": ["close", "save"], 
+
+		// You can also add more file extensions.
+		// "some_extension": ["save"], 
+
+		// Or redefine actions (run the page_reload after saving .html files).
+		"html": [["save", "page_reload"]], 
+
+		// Or add custom actions to the js client (see the readme).
+		// "html": [["open", "my_js_command"]], 
+
+		// Because you will inevitably forget it.
+		"the_trailing_comma_holder": []
+	}, 
+
+
+	// By default, html/py/php changes are not sent to any client, unless you enable this.
+	// If you only work on a single project at once, and want the page to refresh
+	// when you save a html file, uncomment the "*" line below, and go on your merry way.
+
+
+	// But, if you have several pages or websites opened, you have to define which files
+	// belong to which clients. There are several ways to do this, bear with me.
+
+	// Pages are identified by their path, files by their full filepath:
+	//   domain.com/some/page/index.html                     /some/page
+	//   domain.com/some/page/media/my.less                  /some/page/media/my.less
+	//   /your/docroot/myproject/some/page/media/my.less     (how Sublime sees the file)
+
+	// When you edit or save my.less, it matches the full path, so any open page using 
+	// less-watch.js and my.less can get these changes.
+
+	// But often you have a much more complicated environment, path structures, virthosts,
+	// aliases, several pages running from various projects, etc.
+	// See the examples below to link your project folder with the website's path.
+
+	"client_watchlist": {
+		// If you uncomment this, every active page gets updates about every watched file.
+		// "*": '', 
+
+		// How to link a directory with an url path; changes to files under this directory 
+		// will be sent to matching pages like this: /your/docroot/* -> /some/page/*
+		// (The Sublime window title shows the exact file paths.)
+		// "/your/docroot/myproject": "/some/page", 
+
+		// Localhost example:
+		// "/your/docroot/myproject": "/myproject/some/page", 
+		// "C:\\your\\docroot\\myproject": "/myproject/some/page", 
+
+		// Virthosts:
+		// "/your/docroot/myvirthostproject": "/", 
+
+	}, 
+
+
+	// Things you shouldn't need to care about, unless you want to mess around.
+
 	"debug_level": 1, 
 	"plugin_timeout": 0.05, 
 	"more": "..."

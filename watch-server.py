@@ -1,7 +1,7 @@
 import tornado.ioloop
 import tornado.web
 import tornado.websocket
-import sys, os, time, platform, contextlib, json
+import sys, os, time, platform, json
 
 class WatchApp(tornado.web.Application):
 	"""Main app for the http server; stores references to handlers instances and watched files"""
@@ -15,6 +15,8 @@ class WatchApp(tornado.web.Application):
 	def __call__(self, request):
 		handler = super(WatchApp, self).__call__(request)
 		self.active_handlers[handler.client_id()] = handler
+		if self.debug_level > 3:
+			print json.dumps(request.__dict__, indent=4, sort_keys=True, skipkeys=True, default=repr)
 		return handler
 
 	def debug(self, message, level=1):
@@ -25,9 +27,11 @@ class WatchApp(tornado.web.Application):
 		filename, update = (message.split('\n', 1) + [''])[0:2]
 		if not filename or not update: return
 
-		handlers = {k: v for k, v in self.active_handlers.iteritems() if filename in v.files}
+		# connections time out, so filter out nonexistent handlers
+		handlers = dict([k, v] for k, v in self.active_handlers.iteritems() if v and filename in v.files)
 		self.debug('updating %s with "%s"' % (', '.join(handlers.keys()), message.replace('\n', '\\n', 1)[0:60]), 2)
-		[v.write_message(message) for k, v in handlers.iteritems()]
+
+		[handler.write_message(message) for handler in handlers.itervalues()]
 
 	def new_files(self, status=None, as_text=None):
 		if status is not None:
@@ -41,7 +45,7 @@ class WatchApp(tornado.web.Application):
 
 	def watchlist(self, as_text=0):
 		files = {}
-		[files.update(handler.files) for client_id, handler in self.active_handlers.iteritems()]
+		[files.update(handler.files) for client_id, handler in self.active_handlers.iteritems() if handler]
 		if as_text: return unicode('\n'.join(files))
 		return files
 
@@ -113,17 +117,20 @@ def load_settings():
 			super(SimpleDict, self).__init__(*args, **kw)
 			self.__dict__ = self
 
-	def readfile(f, as_json=1):
+	filter_comments = lambda x: x.lstrip()[0:2] != '//'
+
+	def readjson(f):
 		try:
 			with open(f, 'rU') as f:
-				return f.read() if not as_json else json.loads(f.read() or '{}', object_hook=SimpleDict)
+				content = '\n'.join(filter(filter_comments, f.readlines() or ['{}']))
+				return json.loads(content, object_hook=SimpleDict)
 		except:
-			return ['', {}][as_json]
+			return {}
 
 	args = sys.argv[1:]
 	script_settings = {}
 	path = ''
-	paths = readfile(__file__[0:-3] + '.json')
+	paths = readjson(__file__[0:-3] + '.json')
 
 	if args and max(args[0].find(' '), args[0].find(os.sep)) > -1: script_settings['path'] = args.pop(0)
 	if args and args[0].isdigit() and 0 <= int(args[0]) < 10: script_settings['debug_level'] = int(args.pop(0))
@@ -142,8 +149,8 @@ def load_settings():
 	user_dir = os.path.join(path, paths['user_dir'])
 	settings_file = paths['plugin_name'] + paths['settings_ext']
 	
-	settings = readfile(os.path.join(package_dir, settings_file))
-	user_settings = readfile(os.path.join(user_dir, settings_file))
+	settings = readjson(os.path.join(package_dir, settings_file))
+	user_settings = readjson(os.path.join(user_dir, settings_file))
 	settings.update(user_settings, **script_settings)
 	# print json.dumps(settings, indent=2, sort_keys=True)
 
@@ -152,7 +159,8 @@ def load_settings():
 def start_tornado(settings):
 	"""Starts up a WatchApp (tornado.web.Application) on localhost:9000."""
 
-	# print json.dumps(settings, indent=4, sort_keys=1)
+	if settings.debug_level:
+		print 'Loaded settings:', json.dumps(settings, indent=4, sort_keys=1)
 
 	application = WatchApp([
 		('/' + settings.urls.plugin, PluginHandler),
