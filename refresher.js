@@ -37,6 +37,7 @@ function LessWatch() {
 		var server = { host: 'localhost', port: 9000, url: '/file_updates' }, 
 			server_params = ['host', 'port', 'url'], 
 			scriptname = '/less-watch.js';
+		server.url = '';
 
 		var param_name = function(x, i) { return x && [server_params[i], x]; }, 
 			get_params = function(a) { return a && a[0] && a[0].endsWith(scriptname) && a.slice(1).map(param_name).without(undefined); }, 
@@ -173,7 +174,7 @@ function LessWatch() {
 						ref.log('could not refresh %s!', url);
 					}, 
 					onSuccess: function(response) {
-						if (debug > 1)
+						if (this.debug > 1)
 							ref.log('ajax: updating %s with %s', url, response.responseText)
 						style.textContent = ref.less_parse(response.responseText);
 					}

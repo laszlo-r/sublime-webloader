@@ -143,7 +143,7 @@ def load_settings():
 		path = reduce(lambda path, key: path.replace('%' + key + '%', os.environ[key]), paths['replace'], path)
 
 	if not os.path.exists(path):
-		return warning("Can't find the Sublime Packages directory at '%s'. Please provide a correct path." % path)
+		return warning("Can't find the Sublime Packages directory at '%s'.\nPlease provide the path which contains the Packages directory." % path)
 
 	package_dir = os.path.join(path, paths['plugin_name'])
 	user_dir = os.path.join(path, paths['user_dir'])

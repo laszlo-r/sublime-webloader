@@ -30,7 +30,7 @@ More options:
 TODO:
 -----
 
-- done: the plugin now only tries to connect when actual editing happens, and with a low timeout (0.05s, still can trigger the slow plugins warning)
+- the plugin now only tries to connect when actual editing happens, and with a low timeout (0.05s, still can trigger the slow plugins warning)
   - could put these blocking connections under sublime.set_timeout(callback, millisecs) -- which is blocking, sadly
 - test server with multiple sites and files: plugin -> server -> client process works find, but:
   - should insert style elements under their respective link/style tags (overriding order counts with multiple files)
