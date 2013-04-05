@@ -1,0 +1,4 @@
+[
+	{ "keys": ["ctrl+shift+c"], "command": "run_js" }, 
+	{ "keys": ["ctrl+shift+j"], "command": "run_js" }
+]
