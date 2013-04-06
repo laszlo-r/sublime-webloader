@@ -72,9 +72,9 @@ function LessWatch() {
 		if (this.debug > 2) this.log(message)
 
 		var tmp = message.data.split('\n', 2), 
-			content = message.data.slice(tmp[0].length + tmp[1].length + 2), 
-			file = tmp[0], 
-			cmd = (tmp[1] || '').strip(), 
+			cmd = tmp[0], 
+			file = (tmp[1] || '').strip(), 
+			content = tmp[1] === undefined ? '' : message.data.slice(tmp[0].length + tmp[1].length + 2), 
 			single_arg = cmd.length && cmd.indexOf('"') > -1 && cmd.indexOf(' ');
 
 		// examine the command line:
@@ -96,8 +96,8 @@ function LessWatch() {
 		return this.commands[cmd[0]] ?
 			this.commands[cmd[0]].apply(this, [cmd, item, content]) : 
 			this.debug && this.log(
-				'unknown command "%s" for "%s"\n-- content:\n%s\n-- message:', 
-				cmd.join(' '), file, content, message);
+				'unknown command "%s"\n-- file: "%s"\n-- content (%s):\n%s-- message:', 
+				cmd.join(' '), file, content.length, content.replace('\n', '\\n\n') + (content.endsWith('\n') ? '' : '\n'), message);
 	}
 
 	this.add_command = function(cmd, f) { this.commands[cmd] = f; }
