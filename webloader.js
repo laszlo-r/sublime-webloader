@@ -1,6 +1,6 @@
 (function(window) {
 
-function LessWatch() {
+function WebLoader() {
 
 	this.init = function() {
 		// console.clear();
@@ -36,7 +36,7 @@ function LessWatch() {
 	this.check_server_params = function(files) {
 		var server = { host: 'localhost', port: 9000, url: '/file_updates' }, 
 			server_params = ['host', 'port', 'url'], 
-			scriptname = '/less-watch.js';
+			scriptname = '/webloader.js';
 		server.url = '';
 
 		var param_name = function(x, i) { return x && [server_params[i], x]; }, 
@@ -164,7 +164,7 @@ function LessWatch() {
 				if (!((item.rel && item.rel === 'stylesheet/less') || file.slice(file.lastIndexOf('.') + 1) === 'less'))
 					return
 				// use the less-generated style element for updating
-				if (!style.id || (!style.id.startsWith('less:') && !style.id.startsWith('less-watch:')))
+				if (!style.id || (!style.id.startsWith('less:') && !style.id.startsWith('less-webloader:')))
 					return this.log('when updating %s, found this style:', file, style);
 
 				this.remove_custom_styles(file);
@@ -207,7 +207,7 @@ function LessWatch() {
 	}
 
 	this.custom_less_handle = function(file, id) {
-		return this.format('less-watch:%s:%s', file, (id ? id.replace(/ /g, '-') : ''));
+		return this.format('less-webloader:%s:%s', file, (id ? id.replace(/ /g, '-') : ''));
 	}
 
 	this.less_element = function(file) {
@@ -263,9 +263,6 @@ function LessWatch() {
 			next = (next = file.nextSibling) && next.id && next.id.startsWith('less:') ? next.nextSibling : next;
 			file.parentNode.insertBefore(css, next);
 		}
-		// this.log('file element:', sheet)
-		// this.log('less element:', sheet)
-		// this.log('less-watch element:', css)
 
 		if (css.styleSheet) { // IE
 			try {
@@ -337,7 +334,7 @@ function LessWatch() {
 		if (!this.debug || !arguments.length) return;
 
 		// add a prefix, attached to the first argument if it's a string
-		var prefix = '[less-watch ' + this.stime() + '] ',
+		var prefix = '[webloader ' + this.stime() + '] ',
 			add = (typeof arguments[0] === 'string' ? 1 : 0)
 			args = [prefix + (add ? arguments[0] : '')].concat(Array.prototype.slice.call(arguments, add));
 		return console.log.apply(console, args);
@@ -424,6 +421,6 @@ function LessWatch() {
 
 }
 
-return window.watch = new LessWatch();
+return window.webloader = new WebLoader();
 
 })(window);

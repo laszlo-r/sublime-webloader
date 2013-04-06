@@ -45,8 +45,12 @@ class Common(object):
 		elif hasattr(self, 'address'): ident = 'Server'
 		sign = len(message) > 1 and isinstance(message[0], str) and len(message[0]) == 1
 		now = time.strftime('%X') if time else '--------'
+		# locks for timeout-related client output?
 		# Common.debug_lock.acquire()
-		print '%s  %-21s %s%s' % (now, ident, ['| ', ''][sign], ' '.join(map(str, message)))
+		message = '%s  %-21s %s%s' % (now, ident, ['| ', ''][sign], ' '.join(map(str, message)))
+		logfile = 'server.log'
+		with open(logfile, 'a') as f: f.write(message + '\n')
+		# print message
 		# Common.debug_lock.release()
 
 
@@ -157,7 +161,9 @@ class Server(Thread, Common):
 		self.socket = None
 
 	def __del__(self): self.stop()
-	def on_stop(self): self.stop()
+	def on_stop(self):
+		self.log('server thread stopped')
+		self.stop()
 
 	def on_message(self, client, message):
 		pass
@@ -208,7 +214,7 @@ class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin, Common):
 
 	def __init__(self, request, address, server):
 		Thread.__init__(self)
-		request.settimeout(2)
+		request.settimeout(5)
 		SocketServer.StreamRequestHandler.__init__(self, request, address, server)
 		self.handshake()
 		self.log('+', 'handshake: %s' % self.handshake_done)
@@ -245,7 +251,7 @@ class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin, Common):
 		self.log('-', 'stopped client')
 		return self.running
 
-	def on_stop(self): pass
+	def on_stop(self): self.log('client thread stopped')
 	def on_send(self, message): pass
 	def on_read(self, message): pass
 

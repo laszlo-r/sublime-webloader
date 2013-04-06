@@ -3,7 +3,21 @@ import os, httplib, contextlib, itertools
 
 import modules
 
-class Refresher(sublime_plugin.EventListener):
+
+def check_server():
+	settings = sublime.load_settings("Webloader.sublime-settings")
+	if hasattr(sublime, 'websocket_server'):
+		server = sublime.websocket_server
+	else:
+		address = settings.get('host', 'localhost'), settings.get('port', 9000)
+		server = modules.websocket.Server(address, debug=1).start()
+	sublime.websocket_server = server
+	return server, settings
+
+websocket_server, settings = check_server()
+
+
+class Webloader(sublime_plugin.EventListener):
 	"""
 	Plugin contoller; listens to events, sends changes as short http requests.
 
@@ -12,8 +26,7 @@ class Refresher(sublime_plugin.EventListener):
 	For css/less files it sends live updates on each (file-changing) keypress.
 	"""
 	def __init__(self):
-		self.settings = sublime.load_settings("Refresher.sublime-settings")
-		self.debug_level = self.settings.get('debug_level', 0)
+		self.debug_level = settings.get('debug_level', 0)
 		self.parser = modules.css.Parser()
 		self.last_change = modules.css.Block()
 		self.active = False
@@ -28,24 +41,14 @@ class Refresher(sublime_plugin.EventListener):
 		}
 
 		convert = lambda x: x if type(x) is list else [x, 0]
-		self.watch_events = dict([ext, dict(map(convert, events))] for ext, events in self.settings.get('watch_events', {}).iteritems())
+		self.watch_events = dict([ext, dict(map(convert, events))] for ext, events in settings.get('watch_events', {}).iteritems())
 
-		self.server = self.start_server(self.settings.get('host', 'localhost'), self.settings.get('port', 9000))
-		print self.server
-		globals()['refresher'] = self
-		self.debug('hah, started')
-
-	def start_server(self, host, port):
-		# if sublime.__dict__.get('refresher_server'): return sublime.refresher_server
-		sublime.refresher_server = server = modules.ws.WebSocketServer(host, port)
-		# server.start()
-		return server
-
+		self.server = websocket_server
 
 	def debug(self, message, level=1, console=1, status=1):
 		"""Prints to the sublime console and status line, if debug_level > 0."""
 		if not (console or status) or self.debug_level < level: return
-		message = self.settings.get('message_prefix', '') + message
+		message = settings.get('message_prefix', '') + message
 		if console: print message
 		if status: sublime.status_message(message)
 
@@ -166,4 +169,32 @@ class Refresher(sublime_plugin.EventListener):
 		block_info = self.parser.block_info(cursor.begin(), view.substr(sublime.Region(0, view.size())))
 		self.last_change = block_info
 		self.file_event(view, 'edit', content=str(block_info))
+
+
+class RunJsCommand(sublime_plugin.WindowCommand):
+# class RunJsCommand(sublime_plugin.ApplicationCommand):
+# class RunJsCommand(sublime_plugin.TextCommand):
+	def __init__(self, *args, **kw):
+		super(RunJsCommand, self).__init__(*args, **kw)
+
+	def on_done(self, js):
+		self.prev = js
+		print "Running js command: '%s'" % js
+		sublime.status_message("Running js command: '%s'" % js)
+		self.window.show_input_panel('Run javascript', self.prev, self.on_done, None, None)
+
+	def run(self, **args):
+		# look at the current file, find the attached client, and run the js there
+		# if more clients, show_quick_panel with clients, user selects a target (store it)
+		#   run commands on that client, until user cancels the dialog, reset stored client
+
+		# quick_panel example
+		# def on_done(index):
+		# 	sublime.status_message('Selected item %d' % index)
+		# items = ['run on item1', ['item2', 'item2 line 2']]
+		# self.window.show_quick_panel(items, on_done)
+
+		self.window.show_input_panel('Run javascript', self.prev, self.on_done, None, None)
+
+		# self.window.run_command('show_panel', {'panel': 'console', 'xtoggle': True})
 

@@ -1,15 +1,15 @@
 import threading, time
-import ws
+import websocket
 
-class Server(threading.Thread, ws.WebSocketServer):
+class Server(websocket.Server):
 	def __init__(self, plugin=None, **kw):
 		super(threading.Thread, self).__init__()
-		super(ws.WebSocketServer, self).__init__(**kw)
+		super(websocket.Server, self).__init__(**kw)
 		self.plugin = plugin
 		self.update_files = 0
 
 	def run(self):
-		if not self.plugin: return self.debug('Refresher plugin not found, stopping server.')
+		if not self.plugin: return self.debug('Plugin not found, stopping server.')
 		stop_at = time.time() + 10
 		while time.time() < stop_at:
 			time.sleep(1)
@@ -46,7 +46,7 @@ class Server(threading.Thread, ws.WebSocketServer):
 
 
 class PluginHandler(object):
-	"""Handles the connection for the less-watch sublime plugin."""
+	"""Handles the connection for the sublime plugin."""
 
 	def __init__(self, application, request, **kw):
 		super(PluginHandler, self).__init__(application, request)

@@ -1,7 +1,7 @@
 {
 	// Defines how the watch server can be reached, and what urls it serves.
 	// The plugin url handles the http requests from the plugin.
-	// The websocket url handles websocket connections from refresher.js.
+	// The websocket url handles websocket connections from webloader.js.
 
 	"host": "localhost", 
 	"port": 9000, 
@@ -58,7 +58,7 @@
 	//   /your/docroot/myproject/some/page/media/my.less     (how Sublime sees the file)
 
 	// When you edit or save my.less, it matches the full path, so any open page using 
-	// refresher.js and my.less can get these changes.
+	// webloader.js and my.less can get these changes.
 
 	// But often you have a much more complicated environment, path structures, virthosts,
 	// aliases, several pages running from various projects, etc.
@@ -85,7 +85,7 @@
 
 	// Things you shouldn't need to care about, unless you want to mess around.
 
-	"message_prefix": "[Refresher] ", 
+	"message_prefix": "[Webloader] ", 
 	"debug_level": 1, 
 	"plugin_timeout": 0.05, 
 	"more": "..."
