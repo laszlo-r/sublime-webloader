@@ -2,20 +2,24 @@
 Webloader - a Sublime Text 2 plugin
 ===================================
 
-Updates css/less on a page live as you type, or save them (for js/html/php).
+Updates css/less on a page _live as you type_, or when saving js/html/php.
 
-Uses websockets, can update pages without a webserver, and works with multiple pages or files at once. You can run javascript on a page directly from Sublime, define custom actions when you edit/save/load, or add more file extensions. Nothing else to install but the plugin.
+Uses websockets, works without a webserver, with multiple pages or files at once. You can run javascript on a page directly from Sublime, define custom actions when you edit/save/load, or add more file extensions. Nothing else to install but the plugin.
 
 __Still very much in development, but suggestions and fixes are welcome.__
 
 How to use:
 -----------
 - no package control yet, but it's quite easy to install manually!
-- unzip the repo into a convenient folder (your docroot or www folder, if you have a webserver)
-- copy the inner Webloader folder into your Sublime Packages folder, then restart Sublime
-- open the repo's folder in a browser (if no webserver, open the `index.html` directly with a browser)
-- edit one of the `.less` files with Sublime, and see the changes on the page *as you type*
-- if nothing seems to happen, check the Sublime console and the browser's console for warnings/errors
+- unzip the repo, move the Webloader folder under your Sublime Packages folder:
+  - windows: `youruserfolder\AppData\Roaming\Sublime Text 2\Packages`
+  - os x: `~/Library/Application Support/Sublime Text 2`
+  - linux: `~/.config/sublime-text-2`
+- restart Sublime (the console should show a `[Webloader]` message if the plugin loaded)
+- open `Webloader/demo/index.html` in a browser (the javascript console shows if it's connected to the plugin)
+- edit `sample.css` with Sublime, and see the changes on the page *as you type*
+- open `index.html` with Sublime, and save it, this should refresh the page
+- if you put this under your webserver (not opened as file:///), `.less` files can be updated live too!
 
 More options:
 -------------
@@ -24,6 +28,7 @@ More options:
 - if the web page sees your machine on a different ip than localhost, include that ip:
   - `<script src='webloader.js?server=192.168.0.100:9000'></script>`
 - customize settings in the Packages/Webloader/Webloader.sublime-settings file
+  - not every setting is supported yet, but this should be mentioned in the comments
 
 Credits:
 --------
@@ -43,7 +48,9 @@ License:
 TODO:
 -----
 
-- add js commands dialog; hotkey for page reload
+- file urls can be urlencoded, which is often the case in file:/// mode, handle this; test file mode more
+- complete js command: quick panel if multiple clients, send to selected (or a single) client
+- hotkey for page reload for the selected/single client?
 - add menu items for options and commands
 - submit to package control <http://wbond.net/sublime_packages/package_control/package_developers>
 - revisit and test bigger css updates, like whole less blocks, fix selector updates (not updated on edit, only with saving)

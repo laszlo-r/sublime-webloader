@@ -5,3 +5,4 @@ Scripts
 *.log
 plog.sublime*
 download
+*.bat

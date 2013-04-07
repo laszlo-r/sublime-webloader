@@ -16,7 +16,8 @@ function WebLoader() {
 
 	this.collect_files = function() {
 		// regexps for extracting the path+filename and the optional server=... definition from an url
-		var domain = "(?:https?:)?//[\\w\\.-]+", 
+		// var domain = "(?:https?:)?//[\\w\\.-]+", 
+		var domain = "(?:(?:(?:https?:)?//[\\w\\.-]+)|(?:file:///[\\w:]+))", 
 			path = "(/.+\\.(?:less|css|js))", 
 			params = "\\?(?:[\\w&:=_-]*&)*", 
 			server_param = "server=([\\w\\.-]+)?(?::([0-9]{3,})?)?(/[\\w/_-]*)?", 

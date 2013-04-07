@@ -32,12 +32,12 @@ class Client(websocket.Client):
 
 	def watches(self, filename):
 		if not filename in self.files:
-			self.files[filename] = next((x for x in self.files.iterkeys() if filename.endswith(x)), None)
+			self.files[filename] = next((x for x in self.files.iterkeys() if x.endswith(filename)), None)
 		return self.files[filename]
 
 	def on_read(self, message):
 		message = self.server.unpack_message(message)
-		if message == 'watch':
-			self.files.update(dict.fromkeys(message[2].split('\n')))
+		if message[0] == 'watch':
+			self.files.update(dict.fromkeys(message[1].split('\n')))
 		# to update the server if needed:
 		# self.server.on_message(message)
