@@ -1,51 +1,98 @@
 import sublime, sublime_plugin
-import os, time
+import os, time, contextlib
 import modules
 import select
+from pprint import pprint as p
+
+
+@contextlib.contextmanager
+def ignored(*exceptions):
+	try: yield
+	except exceptions: pass
 
 
 class Webloader(object):
 	def __init__(self):
 		self.settings = sublime.load_settings("Webloader.sublime-settings")
-		self.server = None
 		self.prefix = self.settings.get('message_prefix', '[Webloader] ')
 		self.logfile = os.path.join(sublime.packages_path(), 'Webloader', self.settings.get('logfile', 'webloader.log'))
 		self.console_log = self.settings.get('console_log', 0)
-		self.log('plugin loaded, checking server...')
-		sublime.set_timeout(self.check_server, 1000)
+		self._server = None
+
+		if self.get_server(if_running=1):
+			return self.log('\nstarted -- server running on %s:%d ' % self._server.address)
+		self.check_server()
 
 	def check_server(self):
-		if not hasattr(sublime, 'websocket_server') or not sublime.websocket_server.socket:
-			address = self.settings.get('host'), self.settings.get('port')
-			if None in address: return self.log('invalid server address %s, aborting' % str(address))
-			self.server = sublime.websocket_server = modules.server.Server(address, plugin=self, log=self.log, debug=10).start()
-			self.log('server started on %s:%d' % self.server.address)
-		else:
-			self.server = sublime.websocket_server
-			self.server.plugin = self
-			self.log('server running on %s:%d' % self.server.address)
+		"""Attempts to get the server after settings.init_server_delay seconds."""
+		delay = 0
+		with ignored(Exception): delay = float(self.settings.get('init_server_delay'))
+		delay = min(max(delay, 0), 20)
+
+		self.log('\nstarted -- checking server in %d seconds' % delay)
+		if delay: sublime.set_timeout(self.get_server, int(delay * 1000))
+
+	def get_server(self, if_running=0):
+		"""Checks or restarts the server, and returns a server instance (or raises an exception)."""
+		if not self._server and hasattr(sublime, 'webloader_server'):
+			self._server = sublime.webloader_server
+			self._server.plugin = self
+
+		# true if running OR initializing (False)
+		if self._server and self._server.running is not None: return self._server
+		if if_running: return None
+
+		address = self.settings.get('host'), self.settings.get('port')
+		if None in address:
+			self.log('invalid server address %s, aborting (check plugin settings)' % str(address))
+			raise Exception('invalid server address %s' % str(address))
+
+		self._server = sublime.webloader_server = modules.server.Server(address, plugin=self, log=self.log, debug=10).start()
+		self.log('\nserver started on %s:%d ' % self._server.address)
+		return self._server
+
+	@property
+	def server(self):
+		return self.get_server()
 
 	def command(self, cmd, filename='', content=''):
-		if self.server:
-			self.server.command(cmd, filename, content)
+		# access self._server directly so as not to cause an automatic restart
+		if cmd == 'stop': return self._server and self._server.stop()
+		elif cmd == 'restart': return self._server and self._server.stop() or sublime.set_timeout(self.get_server, 1000)
+		elif cmd == 'start': return self.server
+
+		if self.server.running is None: return # not running, or starting
+
+		self.server.command(cmd, filename, content)
 
 	def message(self, message):
 		message = self.settings.get('message_prefix', '') + message
 		print message
 
+	# logging:
+	# should add a logging class, produced and configured by this class,
+	# because other threads will not always be able to access 'self' and
+	# will throw exceptions while this is (re)loading or removed
 	def log(self, obj, *message):
 		if isinstance(obj, (str, unicode)):
 			message = (obj,) + message
 			obj = self
-		ident = ''
-		if hasattr(obj, 'client_address'): ident = '%-15s %-5d' % obj.client_address
-		elif hasattr(obj, 'address'): ident = 'Server'
-		sign = len(message) > 1 and isinstance(message[0], str) and len(message[0]) == 1
-		now = time.strftime('%X') if time else '--------'
-		message = '%s%s  %-21s %s%s' % (self.prefix, now, ident, ['| ', ''][sign], ' '.join(map(str, message)))
 
-		if self.console_log: print message
-		with open(self.logfile, 'a') as f: f.write(message + '\n')
+		ident = ''
+		if isinstance(obj, modules.server.Client): ident = 'Client#%-5d' % (obj.ident or 0)
+		elif isinstance(obj, modules.server.Server): ident = 'Server#%-5d' % (obj.ident or 0)
+		elif obj == self: ident = 'Webloader'
+
+		message = ' '.join(map(str, message))
+		newline = ['', '\n'][message[0] == '\n']
+		sign = ['| ', ''][len(message) > 1 and isinstance(message[0], str) and len(message[0]) == 1]
+		now = time.strftime('%X') if time else ''
+
+		message = '%s  %-12s %s%s' % (now, ident, sign, message[1:] if newline else message)
+
+		if obj == self or self.console_log: print self.prefix + message
+		if obj == self: message = message.ljust(80, '-') # usually important messages
+		with open(self.logfile, 'a') as f: f.write(newline + message + '\n')
 
 
 webloader = Webloader()
@@ -74,8 +121,14 @@ class WebloaderEvents(sublime_plugin.EventListener):
 			'edit': 'update', 
 		}
 
-		convert = lambda x: x if type(x) is list else [x, 0]
-		self.watch_events = dict([ext, dict(map(convert, events))] for ext, events in webloader.settings.get('watch_events', {}).iteritems())
+		# TODO: event classes
+		def single_event(event):
+			return [event, 0] if not isinstance(event, list) else \
+				(event + [0])[0:2] if len(event) < 3 else \
+				event[0:1] + [event[1:]]
+
+		events = webloader.settings.get('watch_events', {})
+		self.watch_events = dict([ext, dict(map(single_event, ev))] for ext, ev in events.iteritems())
 
 	def log(self, message, level=1, console=1, status=1):
 		"""Prints to the sublime console and status line, if debug_level > 0."""
@@ -85,9 +138,7 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		if status: sublime.status_message(message)
 
 	def filename(self, f):
-		return (f if isinstance(f, (str, unicode)) else 
-			(f.file_name() or '') if isinstance(f, sublime.View) else 
-			'').replace(os.path.sep, '/')
+		return (f.file_name() if isinstance(f, sublime.View) else f).replace(os.path.sep, '/')
 
 	def update_files(self, response=None, body=None):
 		if not self.refresh_files and self.files and not response: return 0
@@ -114,12 +165,6 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		self.files = dict.fromkeys(body, 1)
 		return len(body)
 
-	def file_type_events(self, filename='', event=''):
-		filename = self.filename(filename)
-		if not filename: return 0
-		events = self.watch_events.get(filename.rsplit('.', 2).pop())
-		return events.get(unicode(event)) if events and event else events
-
 	def watching_file(self, filename):
 		"""Checks if this file matches one of the watched files (self.files)
 
@@ -140,26 +185,28 @@ class WebloaderEvents(sublime_plugin.EventListener):
 
 		return self.files[filename]
 
+	def file_type_events(self, filename='', event=''):
+		filename = self.filename(filename)
+		if not filename: return 0
+		events = self.watch_events.get(filename.rsplit('.', 2).pop())
+		return events.get(unicode(event)) if events and event else events
+
 	def file_event(self, view, event, args=None, content=''):
+
 		filename = self.filename(view)
 		if not filename: return self.log('an unknown file\'s %sevent was ignored.' % (event and event + ' '))
 
-		cmd = self.file_type_events(filename, event) or self.default_commands.get(event)
-		if not cmd: return
+		# when developing, saving the plugin interrupts with tests, disabled for now
+		if filename.endswith('Webloader/plugin.py'): return
 
-		# if no watched files or we have to refresh, do it, this file may have been requested
-		self.update_files()
+		commands = self.file_type_events(filename, event) or self.default_commands.get(event)
+		if not commands: return
+		if not isinstance(commands, list): commands = [commands]
 
-		# if we watch this file, get it's handle, otherwise ignore it
-		filename = self.watching_file(filename)
-		if not filename: return
+		args = ' '.join(args) if isinstance(args, list) else args or ''
+		if args: commands = map(lambda x: '%s %s' % (x, args), commands)
 
-		# try sending, with a low timeout, server could be down
-		cmd = [cmd] + (args if isinstance(args, list) else [args] if args else [])
-		response, body = self.message.send("%s\n%s\n%s" % (filename, ' '.join(cmd), content))
-
-		# a non-empty response means a fresh file list, so refresh it
-		if response.length: self.update_files(response, body)
+		[webloader.command(cmd, filename, content) for cmd in commands]
 
 	def xxon_activated(self, view):
 		if not view.file_name(): return
@@ -178,7 +225,7 @@ class WebloaderEvents(sublime_plugin.EventListener):
 	def xxon_load(self, view):
 		self.file_event(view, 'open', 'opened')
 
-	def xxon_post_save(self, view):
+	def on_post_save(self, view):
 		self.file_event(view, 'save', 'saved')
 
 	def xxon_close(self, view):
@@ -234,7 +281,7 @@ class WebloaderJsCommand(sublime_plugin.WindowCommand):
 class WebloaderServerCommand(sublime_plugin.WindowCommand):
 
 	def run(self, *args, **kw):
-		if not hasattr(self, 'prev'): self.prev = 'example_command on_filename with any content'
+		if not hasattr(self, 'prev'): self.prev = ''
 		self.window.show_input_panel('Run server command', self.prev, self.on_done, None, None)
 
 	def on_done(self, cmd):

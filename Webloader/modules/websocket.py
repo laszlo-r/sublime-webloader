@@ -123,8 +123,9 @@ class Server(Thread):
 	def __init__(self, address=None, handler=None, log=None, debug=0, **kw):
 		super(Server, self).__init__()
 		self.address = address or Server.default_address
-		self.socket = None
 		self.handler_class = handler or Client
+		self.socket = False
+		self.running = False # means initializing
 		self.test_mode = debug
 		self._clients = []
 		if not log:
@@ -136,19 +137,20 @@ class Server(Thread):
 
 	def run(self):
 		try:
-			self.log('-' * 80)
 			self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.socket.settimeout(5)
 			self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			self.socket.bind(self.address)
-			self.log('listening on %s #%s%s' % (self.address, self.socket.fileno(), \
-				self.test_mode and ' in test mode (stopping after %d clients)' % self.test_mode or ''))
+			self.log('listening on %s:%d%s' % (self.address + \
+				(self.test_mode and ' in test mode (stopping after %d clients)' % self.test_mode or '',)))
 			self.socket.listen(1)
-			while 1:
+			# if other threads called stop(), making it None, don't change it
+			if self.running == False: self.running = True
+			while self.running:
 				try:
 					self.add_client(self.socket.accept())
 				except socket.timeout:
-					if not self.socket: break # something called stop()
+					if not self.running: break
 				else:
 					if not self.test_mode: continue
 					self.test_mode -= 1
@@ -156,21 +158,22 @@ class Server(Thread):
 					time.sleep(1)
 					self.stop('ending test mode, waiting for %d client to close' % len(self.clients))
 					break
-		except socket.error as e:
-			self.stop(e)
+		# except Exception as e:
+		# 	self.stop(e)
 		finally:
+			# close socket here, preventing socket errors by other threads closing it sooner
+			self.socket.close()
 			self.stop()
 
 	def stop(self, reason=None):
-		if not self.socket: return
-		self.for_each_client(self.stop_client, 'server stopping')
-		self.socket.close()
-		self.socket = None
+		if not self.running: return
+		# self.for_each_client(self.stop_client, 'server stopping')
+		self.running = None
 		self.log('=', 'stopping%s' % (' (%s)' % str(reason) if reason else ''))
 
 	def __del__(self): self.stop()
 	def on_stop(self):
-		self.log('server thread stopped')
+		self.log('-', 'server thread stopped')
 		self.stop()
 
 	def on_message(self, client, message):
@@ -194,7 +197,7 @@ class Server(Thread):
 			a = args or fargs
 			k = kw or fkw
 			res = [m(x, *a, **k) for x in self.clients if not match or match(x)]
-			self.log('@', '%s for each client:' % method.__name__, res)
+			self.log('@', '%s(%s, %s) =' % (method.__name__, a, k), res)
 			return res
 		return f(self) if self else f
 
@@ -236,13 +239,13 @@ class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin):
 			else:
 				def log(*x): print x
 		self.log = partial(log, self)
-		self.log('+', 'handshake: %s' % self.handshake_done)
 		self.running = 1
 
 	def handle(self): pass
 	def finish(self): pass
 
 	def run(self):
+		self.log('+', 'connection %s:%d, handshake: %s' % (self.client_address + (self.handshake_done,)))
 		try:
 			while self.running and self.read(): pass
 		finally:
@@ -253,7 +256,10 @@ class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin):
 		if message:
 			self.log("<", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
 			self.on_read(message)
-			self.server.on_message(self, message)
+		if self.server.running: self.server.on_message(self, message)
+		else: # server stopped, we should too
+			self.stop()
+			message = None
 		return message is None or len(message)
 
 	def send(self, message):
@@ -267,10 +273,11 @@ class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin):
 		self.server.remove_client(self)
 		if reason: self.send('closed_connection\n\n%s' % reason)
 		if not self.rfile.closed: super(Client, self).finish()
+		if self.connection: self.connection.close()
 		self.log('-', 'stopped client')
 		return self.running
 
-	def on_stop(self): self.log('client thread stopped')
+	def on_stop(self): self.log('-', 'client thread stopped')
 	def on_send(self, message): pass
 	def on_read(self, message): pass
 

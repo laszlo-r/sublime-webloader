@@ -4,6 +4,7 @@ function WebLoader() {
 
 	this.init = function() {
 		// console.clear();
+		this.server = { host: 'localhost', port: 9000, re_min_interval: 15, re_timer: 0 };
 		this.debug = 1;
 
 		this.collect_files();
@@ -34,17 +35,14 @@ function WebLoader() {
 	}
 
 	this.check_server_params = function(files) {
-		var server = { host: 'localhost', port: 9000, url: '/file_updates' }, 
-			server_params = ['host', 'port', 'url'], 
+		var server_params = ['host', 'port'], 
 			scriptname = '/webloader.js';
-		server.url = '';
 
 		var param_name = function(x, i) { return x && [server_params[i], x]; }, 
 			get_params = function(a) { return a && a[0] && a[0].endsWith(scriptname) && a.slice(1).map(param_name).without(undefined); }, 
 			add_params = function(a) { if (a && a[1]) this[a[0]] = a[1]; };
 
-		(files.map(get_params).without(0).first() || []).each(add_params, server);
-		this.server = server;
+		(files.map(get_params).without(0).first() || []).each(add_params, this.server);
 	}
 
 	this.request_watching = function() {
@@ -295,15 +293,24 @@ function WebLoader() {
 	/// websocket stuff
 
 	this.connect = function() {
-		var url = "ws://" + this.server.host + ':' + this.server.port + this.server.url + '?client=' + window.location.href;
+		var url = "ws://" + this.server.host + ':' + this.server.port + '?client=' + window.location.href;
 
-		this.log('connecting to ' + url.split('?')[0]);
-		var ref = this, socket = this.socket = new WebSocket(url); 
+		if (this.socket === undefined) this.log('connecting to server at ' + url.split('?')[0]);
+		var ref = this, socket = this.socket = new WebSocket(url);
 
 		var methods = [
-			function onopen() { this.request_watching(); },
-			function onclose() { this.log('websocket closed'); },
-			function onmessage(message) { this.parse_command(message); }
+			function onopen() {
+				this.server.re_timer = 0;
+				this.request_watching();
+			},
+			function onclose() {
+				if (!this.server.re_timer) this.log('connection closed, running reconnect attempts...');
+				this.reconnect(0);
+				this.socket = null;
+			},
+			function onmessage(message) {
+				this.parse_command(message);
+			}
 		]
 
 		methods.each(function(func) { socket[func.name] = function() { func.apply(ref, arguments); } });
@@ -311,9 +318,15 @@ function WebLoader() {
 		return this.socket;
 	}
 
-	this.reconnect = function(server) {
+	this.reconnect = function(server, after) {
 		if (server) this.server = server;
-		return (this.socket && this.socket.close()) || this.connect();
+		var ref = this, attempt = function() {
+			return (ref.socket && ref.socket.close()) || ref.connect();
+		}
+		if (after === undefined)
+			after = this.server.re_timer = Math.min((Number(this.server.re_timer) || 0) + 1, this.server.re_min_interval)
+		setTimeout(attempt, after * 1000);
+		return after;
 	}
 
 
@@ -389,7 +402,6 @@ function WebLoader() {
 		]
 		var hosts = ['some-server-host', '']
 		var ports = [':9000', ':', '']
-		var urls = ['/some_url/path', '/', '']
 
 		var generate = function(list, prefix) {
 			return function (a) { return list.map(function(x) { return a + prefix + x; }); };
@@ -403,8 +415,7 @@ function WebLoader() {
 			map(generate(files, '')).flatten().
 			map(generate(params, '?')).flatten().
 			map(generate(hosts, '&server=')).flatten().
-			map(generate(ports, '')).flatten().
-			map(generate(urls, '')).flatten();
+			map(generate(ports, '')).flatten();
 
 		// return a specific item, if asked
 		if (expected < 0) return [result[-expected]];

@@ -31,6 +31,7 @@
 
 		// Or redefine actions (run the page_reload after saving .html files).
 		"html": [["save", "page_reload"]], 
+		"html": [["save", "page_reload", "other_command"]], 
 
 		// Or add custom actions to the js client (see the readme).
 		// "html": [["open", "my_js_command"]], 
@@ -111,9 +112,10 @@
 
 	// Things you shouldn't need to care about, unless you want to mess around.
 
-	"message_prefix": "[Webloader] ", 
-	"logfile": "webloader.log", 
-	"console_log": 0, 
+	"init_server_delay": 1, // start server x sec after startup (0 = only when needed)
+	"logfile": "webloader.log", // path relative to plugin folder
+	"console_log": 0, // should also log to the console
+	"message_prefix": "[Webloader] ", // console message prefix
 	"debug_level": 1, 
 	"more": "..."
 }
