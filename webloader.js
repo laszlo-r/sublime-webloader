@@ -143,6 +143,9 @@ function WebLoader() {
 			else console.log(cmd, file, content);
 		})
 
+		this.add_command('run', function(cmd, file, content) {
+			if (content && content.length) console.log(eval(content))
+		})
 	}
 
 	this.setup_callbacks = function() {
@@ -365,7 +368,7 @@ function WebLoader() {
 		var domains = [
 			"localhost", 
 			"127.0.0.1", 
-			"some.domain.com", 
+			"some.domain.com"
 		]
 		var paths = [
 			'simple/', 

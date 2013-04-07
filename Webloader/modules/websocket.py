@@ -37,31 +37,28 @@ class Thread(threading.Thread):
 		super(Thread, self).__stop()
 
 
-class Common(object):
-	debug_lock = threading.RLock()
-	def log(self, *message):
-		ident = '?'
-		if hasattr(self, 'client_address'): ident = '%-15s %-5d' % self.client_address
-		elif hasattr(self, 'address'): ident = 'Server'
-		sign = len(message) > 1 and isinstance(message[0], str) and len(message[0]) == 1
-		now = time.strftime('%X') if time else '--------'
-		# locks for timeout-related client output?
-		# Common.debug_lock.acquire()
-		message = '%s  %-21s %s%s' % (now, ident, ['| ', ''][sign], ' '.join(map(str, message)))
-		logfile = 'server.log'
-		with open(logfile, 'a') as f: f.write(message + '\n')
-		# print message
-		# Common.debug_lock.release()
-
-
 class WebSocketMixin(object):
 	# websocket recipe from on https://gist.github.com/jkp/3136208
 	magic = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+
+	# GET /?client=http://localhost/git/sublime-less-watch/ HTTP/1.1
+	# Upgrade: websocket
+	# Connection: Upgrade
+	# Host: localhost:9000
+	# Origin: http://localhost
+	# Pragma: no-cache
+	# Cache-Control: no-cache
+	# Sec-WebSocket-Key: YGbMI5TKfyADYxqqy0w4LQ==
+	# Sec-WebSocket-Version: 13
+	# Sec-WebSocket-Extensions: x-webkit-deflate-frame
+	# User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.15 Safari/537.36
+	# Cookie: PHPSESSID=nl2sbe2ga5rtkn5i0obq97cdm3
 
 	def handshake(self):
 		if hasattr(self, 'handshake_done'): return self.handshake_done
 		self.handshake_done = False
 		data = self.request.recv(1024).strip()
+		# print 'first request:\n' + data
 		headers = mimetools.Message(StringIO(data.split('\r\n', 1)[1]))
 		if headers.get("Upgrade", None) != "websocket": return
 
@@ -86,8 +83,8 @@ class WebSocketMixin(object):
 	#	send an opcode (8th: final message, 1th: text frame)
 	#	send length as a single byte, or 126 + 2-byte, or 127 + 8-byte
 
-	def read_message(self, debug=1):
-		log = [lambda: 1, self.log][debug]
+	def read_message(self, debug=0):
+		log = [lambda *x: 1, self.log][debug]
 		length = None
 		with ignored(socket.timeout): length = self.rfile.read(2)
 		if length is None: return None
@@ -120,15 +117,19 @@ class WebSocketMixin(object):
 		return self.request.send(message)
 
 
-class Server(Thread, Common):
+class Server(Thread):
 	default_address = ('localhost', 9000)
 
-	def __init__(self, address=None, debug=0, **kw):
+	def __init__(self, address=None, handler=None, log=None, debug=0, **kw):
 		super(Server, self).__init__()
 		self.address = address or Server.default_address
 		self.socket = None
+		self.handler_class = handler or Client
 		self.test_mode = debug
 		self._clients = []
+		if not log:
+			def log(*x): print x
+		self.log = partial(log, self) if log else lambda *x: None
 
 	def start(self):
 		return super(Server, self).start() or self
@@ -137,28 +138,35 @@ class Server(Thread, Common):
 		try:
 			self.log('-' * 80)
 			self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.socket.settimeout(5)
 			self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			self.socket.bind(self.address)
 			self.log('listening on %s #%s%s' % (self.address, self.socket.fileno(), \
 				self.test_mode and ' in test mode (stopping after %d clients)' % self.test_mode or ''))
 			self.socket.listen(1)
 			while 1:
-				self.add_client(self.socket.accept())
-				if self.test_mode:
+				try:
+					self.add_client(self.socket.accept())
+				except socket.timeout:
+					if not self.socket: break # something called stop()
+				else:
+					if not self.test_mode: continue
 					self.test_mode -= 1
 					if self.test_mode > 0: continue
-					time.sleep(2)
+					time.sleep(1)
 					self.stop('ending test mode, waiting for %d client to close' % len(self.clients))
 					break
-		except socket.error as error:
-			self.stop(error)
+		except socket.error as e:
+			self.stop(e)
+		finally:
+			self.stop()
 
 	def stop(self, reason=None):
 		if not self.socket: return
 		self.for_each_client(self.stop_client, 'server stopping')
-		self.log('=', 'stopping%s' % (' (%s)' % str(reason) if reason else ''))
 		self.socket.close()
 		self.socket = None
+		self.log('=', 'stopping%s' % (' (%s)' % str(reason) if reason else ''))
 
 	def __del__(self): self.stop()
 	def on_stop(self):
@@ -175,13 +183,27 @@ class Server(Thread, Common):
 		yield getattr(self, lock).acquire()
 		getattr(self, lock).release()
 
+	def for_each_client(self, method=None, *args, **kw):
+		# when decorating, called with a single function argument
+		if method is None: method, self = self, None
+		match = kw.pop('match', None)
+		def f(self, *fargs, **fkw):
+			# if not bound, bind the server as first argument
+			m = method if hasattr(method, 'im_self') else partial(method, self)
+			# decorated methods send arguments via fargs, normal calls send via args
+			a = args or fargs
+			k = kw or fkw
+			res = [m(x, *a, **k) for x in self.clients if not match or match(x)]
+			self.log('@', '%s for each client:' % method.__name__, res)
+			return res
+		return f(self) if self else f
+
 	@property
 	def clients(self, filename=''):
-		return [x for x in self._clients if x and x.is_alive()]
+		return [x for x in self._clients if x and x.running and x.is_alive()]
 
 	def add_client(self, addr):
-		client = Client(addr[0], addr[1], server=self)
-		# self.broadcast('a new client arrived: %s' % client)
+		client = self.handler_class(addr[0], addr[1], server=self)
 		self._clients.append(client)
 		client.start()
 
@@ -191,32 +213,29 @@ class Server(Thread, Common):
 	def stop_client(self, client, reason=None):
 		return client.stop(reason)
 
-	def for_each_client(self, method=None, *fargs, **fkw):
-		if method is None: method, self = self, None
-		def f(self, *args, **kw):
-			# with self.lock('debug'):
-			callback = method if hasattr(method, 'im_self') else partial(method, self)
-			res = [callback(x, *args, **kw) for x in self.clients]
-			self.log('@', '%s for each client:' % method.__name__, res)
-			return res
-		return f(self, *fargs, **fkw) if self else f
-
 	@for_each_client
 	def broadcast(self, client, message):
 		self.log('broadcasting to', client, message)
 		return client.send(message)
 
 
-class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin, Common):
+class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin):
 
 	# BaseRequestHandler: setup, handle, finish; request, client_address, server
 	# StreamRequestHandler: self.connection == self.request (the socket), rfile/wfile (file-likes)
 
-	def __init__(self, request, address, server):
+	def __init__(self, request, address, server, timeout=2, log=None):
 		Thread.__init__(self)
-		request.settimeout(5)
+		request.settimeout(timeout)
 		SocketServer.StreamRequestHandler.__init__(self, request, address, server)
 		self.handshake()
+		if not log:
+			if self.server.log:
+				if isinstance(self.server.log, partial): log = self.server.log.func
+				elif hasattr(server.log, 'im_func'): log = self.server.log.im_func
+			else:
+				def log(*x): print x
+		self.log = partial(log, self)
 		self.log('+', 'handshake: %s' % self.handshake_done)
 		self.running = 1
 
@@ -258,4 +277,3 @@ class Client(Thread, SocketServer.StreamRequestHandler, WebSocketMixin, Common):
 
 if __name__ == '__main__':
 	Server(debug=1).start()
-

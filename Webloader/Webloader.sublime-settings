@@ -1,14 +1,10 @@
 {
-	// Defines how the watch server can be reached, and what urls it serves.
-	// The plugin url handles the http requests from the plugin.
-	// The websocket url handles websocket connections from webloader.js.
+	// The host and port the server listens to.
+	// If you change this, change the js script too: 'webloader.js?server=host:port'
+	// Then reload the plugin (restart Sublime), and your page.
 
 	"host": "localhost", 
 	"port": 9000, 
-	"urls": {
-		"plugin": "watch_server", 
-		"websocket": "file_updates"
-	}, 
 
 
 	// Defines what types of files should be watched, and what should happen at events.
@@ -44,41 +40,71 @@
 	}, 
 
 
-	// By default, html/py/php changes are not sent to any client, unless you enable this.
-	// If you only work on a single project at once, and want the page to refresh
-	// when you save a html file, uncomment the "*" line below, and go on your merry way.
-
-
-	// But, if you have several pages or websites opened, you have to define which files
-	// belong to which clients. There are several ways to do this, bear with me.
-
-	// Pages are identified by their path, files by their full filepath:
-	//   domain.com/some/page/index.html                     /some/page
-	//   domain.com/some/page/media/my.less                  /some/page/media/my.less
-	//   /your/docroot/myproject/some/page/media/my.less     (how Sublime sees the file)
-
-	// When you edit or save my.less, it matches the full path, so any open page using 
-	// webloader.js and my.less can get these changes.
-
-	// But often you have a much more complicated environment, path structures, virthosts,
-	// aliases, several pages running from various projects, etc.
-	// See the examples below to link your project folder with the website's path.
+	// By default, html/py/php changes are not sent to clients, unless you allow this.
+	// If you don't mind, ignore this setting. If you use virthosts though, read on.
 
 	"client_watchlist": {
-		// If you uncomment this, every active page gets updates about every watched file.
-		// "*": '', 
+
+		// Simplest mode:
+		// "*": '', // Means: every webloader-using page should refresh when you save.
+
+		// You should uncomment the above line and ignore the rest, if either:
+		// - you only work on a single project at once, with a few open pages
+		// - or your file paths match to the urls, like these:
+		//   /home/www/project/x.html     -> localhost/project/x.html?y=1
+		//   /home/www/project/index.html -> localhost/project/?y=1
+		//   /home/www/another/a/b.php    -> localhost/another/a/b.php#c
+
+
+		// With proper paths:
+		// "/your/docroot/myproject": "/myproject", 
+
+		// Defines how a folder matches to page urls. If you uncomment the above,
+		// saved files in /your/docroot/myproject/* will refresh any active page
+		// under /myproject/.
+		// Protip: see your EXACT file paths in the Sublime window title.
+		// Another: you can use '/' on every platform. '\\'' is silly.
+
+
+		// For virthosts: docroot/localvirthost/ -> localvirthost.com/
+		// "/your/docroot/localvirthost*": "/", 
+		// "/your/docroot/localvirthost*": "/same/page/url", 
+		// "/your/docroot/differenthost*": "/same/page/url", 
+
+
+		// More examples (you can define several):
+
+		// Localhost: if docroot/myproject is sitting on http://localhost/project/
+		// "/your/docroot/myproject": "/myproject/some/page", 
+		// "C:\\your\\docroot\\myproject": "/myproject/some/page", 
+		// Only for certain folder and urls:
+
+
 
 		// How to link a directory with an url path; changes to files under this directory 
 		// will be sent to matching pages like this: /your/docroot/* -> /some/page/*
 		// (The Sublime window title shows the exact file paths.)
 		// "/your/docroot/myproject": "/some/page", 
 
-		// Localhost example:
-		// "/your/docroot/myproject": "/myproject/some/page", 
-		// "C:\\your\\docroot\\myproject": "/myproject/some/page", 
 
-		// Virthosts:
-		// "/your/docroot/myvirthostproject": "/", 
+		// Long explanation:
+
+		// The plugin identifies pages by their path, files by their full filepath:
+		//   domain.com/some/page/index.html           ->  /some/page
+		//   domain.com/some/page/media/my.less        ->  /some/page/media/my.less
+		// And Sublime sees paths like this:
+		//     /your/docroot/myproject/some/page/media/my.less
+		//   C:\your\docroot\myproject\some\page\media\my.less
+
+		// It's easy matching files to pages if we define "where to root url starts".
+		// 
+		// When you edit or save my.less, it matches the full path, so any open page using 
+		// webloader.js and my.less can get these changes.
+
+		// But often you have a much more complicated environment, path structures, virthosts,
+		// aliases, several pages running from various projects, etc.
+		// See the examples below to link your project folder with the website's path.
+
 
 	}, 
 
@@ -86,7 +112,8 @@
 	// Things you shouldn't need to care about, unless you want to mess around.
 
 	"message_prefix": "[Webloader] ", 
+	"logfile": "webloader.log", 
+	"console_log": 0, 
 	"debug_level": 1, 
-	"plugin_timeout": 0.05, 
 	"more": "..."
 }

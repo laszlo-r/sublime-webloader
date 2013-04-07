@@ -1,82 +1,43 @@
-import threading, time
 import websocket
 
 class Server(websocket.Server):
-	def __init__(self, plugin=None, **kw):
-		super(threading.Thread, self).__init__()
-		super(websocket.Server, self).__init__(**kw)
+
+	def __init__(self, address=None, plugin=None, *args, **kw):
+		if not kw.get('handler'): kw['handler'] = Client
+		super(Server, self).__init__(address, *args, **kw)
 		self.plugin = plugin
-		self.update_files = 0
 
-	def run(self):
-		if not self.plugin: return self.debug('Plugin not found, stopping server.')
-		stop_at = time.time() + 10
-		while time.time() < stop_at:
-			time.sleep(1)
-		self.debug('Stopping server.')
+	def command(self, cmd, filename='', content=''):
+		if not (cmd and len(cmd)): return False
+		message = self.pack_message(cmd, filename, content)
+		match = None if not filename else lambda x: x.watches(filename)
+		return self.for_each_client(self.send_message, message, match=match)
 
-	def active_clients(self, filename=''):
-		return [x for x in self.clients if x and x.live and len(x.files) and (not filename or x.files.get(filename))]
+	def send_message(self, client, message):
+		client.send(message)
 
-	def file_event(self, message):
-		filename, update = (message.split('\n', 1) + [''])[0:2]
-		if not filename or not update: return
+	# def on_message(self, client, message): pass
 
-		clients = self.active_clients(filename)
-		self.debug('updating %s with "%s"' % (', '.join(clients), message.replace('\n', '\\n', 1)[0:60]), 2)
-		[x.write(message) for x in clients]
-
-	def new_files(self, status=None, as_text=None):
-
-		if status is not None:
-			self.update_files = int(status)
-			return
-		if as_text is None: return self.update_files
-		self.update_files = 0
-		files = self.watchlist(as_text=as_text)
-		self.debug('currently watching: ' + files.replace('\n', ', '), 2)
-		return files
-
-	def watchlist(self, as_text=0):
-		files = {}
-		[files.update(handler.files) for client_id, handler in self.active_handlers.iteritems() if handler]
-		if as_text: return unicode('\n'.join(files))
-		return files
+	# TODO: message class maybe
+	def pack_message(self, *message): return '\n'.join(message[0:3])
+	def unpack_message(self, message): return (message.split('\n', 2) + ['', ''])[0:3]
 
 
+class Client(websocket.Client):
+	"""Stores which files to watch, so there is less traffic when broadcasting events."""
 
-class PluginHandler(object):
-	"""Handles the connection for the sublime plugin."""
-
-	def __init__(self, application, request, **kw):
-		super(PluginHandler, self).__init__(application, request)
+	def __init__(self, *args, **kw):
+		super(Client, self).__init__(*args, **kw)
 		self.files = {}
 
-	def client_id(self): return 'sublime-plugin'
+	def watches(self, filename):
+		if not filename in self.files:
+			self.files[filename] = next((x for x in self.files.iterkeys() if filename.endswith(x)), None)
+		return self.files[filename]
 
-	def post(self, *args, **kw):
-		"""Handles requests from the sublime plugin, which are either updates, commands, or filelist requests (empty request)"""
-		if self.request.body:
-			self.application.forward_update(self.request.body)
-		if not self.request.body or self.application.new_files():
-			self.write(self.application.new_files(as_text=1))
-
-class WebSocketHandler(object):
-	"""Handles the connection for the websocket client, and stores which files to watch."""
-
-	def __init__(self, application, request, **kw):
-		super(WebSocketHandler, self).__init__(application, request)
-		self.files = {}
-
-	def client_id(self): return self.request.arguments.get('client', [self.request.headers.get('Origin', None)])[0]
-	def open(self): self.application.debug("%s   opens websocket" % self.client_id(), 2)
-	def on_close(self): self.application.debug("%s   closes websocket" % self.client_id(), 2)
-
-	def on_finish(self): print 'on_finish in websockethandler'
-
-	def on_message(self, message):
-		"""Expects a file list (string with linebreaks, except first line), and stores them for the plugin."""
-		files = message.split('\n')[1:]
-		self.files.update(dict.fromkeys(files, 1))
-		self.application.new_files(1)
-		self.application.debug("%s   asks to watch: %s" % (self.client_id(), ', '.join(files)))
+	def on_read(self, message):
+		message = self.server.unpack_message(message)
+		if message == 'watch':
+			self.files.update(dict.fromkeys(message[2].split('\n')))
+		# to update the server if needed:
+		# self.server.on_message(message)

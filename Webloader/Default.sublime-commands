@@ -1,6 +1,6 @@
 [
 	{
 		"caption": "Webloader: run js command",
-		"command": "run_js"
+		"command": "webloader_js"
 	}
 ]
