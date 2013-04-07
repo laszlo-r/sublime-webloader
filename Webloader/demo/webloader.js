@@ -49,7 +49,8 @@ function WebLoader() {
 	this.request_watching = function() {
 		if (this.debug > 1) this.log('watching ' + this.files.join(', '));
 		else this.log('watching ' + this.files.map(function(a) { return a.slice(a.lastIndexOf('/') + 1); }).join(', '));
-		this.socket.send('watch\n' + this.files.join('\n'))
+		// this.socket.send('watch\n' + this.files.join('\n'))
+		this.socket.send(JSON.stringify({ cmd: 'watch', content: this.files }))
 	}
 
 	// file can be an element with href or src, or a file handle from this.files (even a partial match)

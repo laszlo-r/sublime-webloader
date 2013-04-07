@@ -1,8 +1,6 @@
 import sublime, sublime_plugin
 import os, time, contextlib
 import modules
-import select
-from pprint import pprint as p
 
 
 @contextlib.contextmanager
@@ -65,9 +63,10 @@ class Webloader(object):
 
 		self.server.command(cmd, filename, content)
 
-	def message(self, message):
-		message = self.settings.get('message_prefix', '') + message
-		print message
+	def message(self, client, message):
+		client_id = client.page
+		message = '%s xsends: %s' % (client_id, message)
+		self.log(message)
 
 	# logging:
 	# should add a logging class, produced and configured by this class,
@@ -199,7 +198,12 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		# when developing, saving the plugin interrupts with tests, disabled for now
 		if filename.endswith('Webloader/plugin.py'): return
 
-		commands = self.file_type_events(filename, event) or self.default_commands.get(event)
+		# None: not watching this file type
+		# 0 or '' or []: default action for this event
+		# str: specified action for this event
+		# list of strings: more than one action for this event
+		commands = self.file_type_events(filename, event)
+		if not commands and commands is not None: commands = self.default_commands.get(event, None)
 		if not commands: return
 		if not isinstance(commands, list): commands = [commands]
 
