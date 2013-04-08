@@ -16,18 +16,18 @@ function WebLoader() {
 
 	this.collect_files = function() {
 		// regexps for extracting the path+filename and the optional server=... definition from an url
-		// var domain = "(?:https?:)?//[\\w\\.-]+", 
-		var domain = "(?:(?:(?:https?:)?//[\\w\\.-]+)|(?:file:///[\\w:]+))", 
-			path = "(/.+\\.(?:less|css|js))", 
-			params = "\\?(?:[\\w&:=_-]*&)*", 
-			server_param = "server=([\\w\\.-]+)?(?::([0-9]{3,})?)?(/[\\w/_-]*)?", 
-			ending = "(?:&|$)?", 
+		// var domain = "(?:https?:)?//[\\w\\.-]+",
+		var domain = "(?:(?:(?:https?:)?//[\\w\\.-]+)|(?:file:///[\\w:]+))",
+			path = "(/.+\\.(?:less|css|js))",
+			params = "\\?(?:[\\w&:=_-]*&)*",
+			server_param = "server=([\\w\\.-]+)?(?::([0-9]{3,})?)?(/[\\w/_-]*)?",
+			ending = "(?:&|$)?",
 			pattern = domain + path + "(?:" + params + server_param + ending + ")?"
 
 		this.file_pattern = RegExp(pattern)
 		// this.test_regexp(this.file_pattern, 5); // pattern, expected number of pieces
 
-		var get_file_info = function(a) { return (a = a.href || a.src) && (a = a.match(this)) && a.slice(1); }, 
+		var get_file_info = function(a) { return (a = a.href || a.src) && (a = a.match(this)) && a.slice(1); },
 			files = document.head.childElements().map(get_file_info, this.file_pattern).filter(this.self);
 
 		this.check_server_params(files);
@@ -36,11 +36,11 @@ function WebLoader() {
 	}
 
 	this.check_server_params = function(files) {
-		var server_params = ['host', 'port'], 
+		var server_params = ['host', 'port'],
 			scriptname = '/webloader.js';
 
-		var param_name = function(x, i) { return x && [server_params[i], x]; }, 
-			get_params = function(a) { return a && a[0] && a[0].endsWith(scriptname) && a.slice(1).map(param_name).without(undefined); }, 
+		var param_name = function(x, i) { return x && [server_params[i], x]; },
+			get_params = function(a) { return a && a[0] && a[0].endsWith(scriptname) && a.slice(1).map(param_name).without(undefined); },
 			add_params = function(a) { if (a && a[1]) this[a[0]] = a[1]; };
 
 		(files.map(get_params).without(0).first() || []).each(add_params, this.server);
@@ -50,7 +50,7 @@ function WebLoader() {
 		if (this.debug > 1) this.log('watching ' + this.files.join(', '));
 		else this.log('watching ' + this.files.map(function(a) { return a.slice(a.lastIndexOf('/') + 1); }).join(', '));
 		// this.socket.send('watch\n' + this.files.join('\n'))
-		this.socket.send(JSON.stringify({ cmd: 'watch', content: this.files }))
+		this.send_command('watch', null, this.files);
 	}
 
 	// file can be an element with href or src, or a file handle from this.files (even a partial match)
@@ -68,13 +68,23 @@ function WebLoader() {
 		return document.head.childElements().filter(matches).first();
 	}
 
+	this.send_command = function(cmd, file, content) {
+		if (!cmd) return false
+		return this.socket.send(JSON.stringify({ cmd: cmd, file: file || '', content: content || '' }));
+	}
+
 	this.parse_command = function(message) {
 		if (this.debug > 2) this.log(message)
 
-		var tmp = message.data.split('\n', 2), 
-			cmd = tmp[0], 
-			file = (tmp[1] || '').strip(), 
-			content = tmp[1] === undefined ? '' : message.data.slice(tmp[0].length + tmp[1].length + 2), 
+		try {
+			message = JSON.parse(message.data) || {};
+		} catch (e) {
+			this.log('error parsing message: %s\n--message:', e, message)
+			if (!cmd || typeof cmd != 'string') return this.log('unknown message:', message)
+		}
+		var cmd = message.cmd,
+			file = message.filename || '',
+			content = message.content || '',
 			single_arg = cmd.length && cmd.indexOf('"') > -1 && cmd.indexOf(' ');
 
 		// examine the command line:
@@ -82,7 +92,7 @@ function WebLoader() {
 		// 0 (no length) or -1 (no space) -- single array
 		// else: split by first space, let the command method sort out arguments
 
-		cmd = single_arg === false ? 
+		cmd = single_arg === false ?
 			cmd.split(' ').without('') :
 			(single_arg <= 0 ? [cmd] : [cmd.slice(0, single_arg), cmd.slice(single_arg + 1)])
 
@@ -94,9 +104,9 @@ function WebLoader() {
 		if (typeof cmd === 'string') cmd = [cmd];
 
 		return this.commands[cmd[0]] ?
-			this.commands[cmd[0]].apply(this, [cmd, item, content]) : 
+			this.commands[cmd[0]].apply(this, [cmd, item, content]) :
 			this.debug && this.log(
-				'unknown command "%s"\n-- file: "%s"\n-- content (%s):\n%s-- message:', 
+				'unknown command "%s"\n-- file: "%s"\n-- content (%s):\n%s-- message:',
 				cmd.join(' '), file, content.length, content.replace('\n', '\\n\n') + (content.endsWith('\n') ? '' : '\n'), message);
 	}
 
@@ -115,6 +125,10 @@ function WebLoader() {
 
 		this.add_command('reload_file', function(cmd, file, content) {
 			if (!file.href && !file.src) return this.log('cannot find the element of "%s"', file)
+			if (file.src && file.src.split('/').pop().split('?')[0] === 'webloader.js') {
+				this.server.re_min_interval = 0;
+				this.socket && this.socket.close();
+			}
 
 			var clone = function(a) {
 				var e = document.createElement(a.tagName), attr = (a.href ? 'href' : 'src');
@@ -134,9 +148,9 @@ function WebLoader() {
 			this.command(['reload_file', 'was ' + cmd[0]], file)
 		}
 
-		this.add_command('opened', reload_file);
-		this.add_command('saved', reload_file);
-		this.add_command('closed', reload_file);
+		this.add_command('opened', reload_file); // see an updated page before editing
+		this.add_command('closed', reload_file); // remove changes from cancelled edits
+		this.add_command('saved', reload_file);  // reload a freshly saved file
 
 		this.add_command('update', function(cmd, file, content) {
 			if (file.type === 'text/css' && content) this.less_update(file, content);
@@ -158,14 +172,13 @@ function WebLoader() {
 					len = -len - (url.slice(-len - 1, -len) === '?' || url.slice(-len - 1, -len) === '&' ? 1 : 0);
 					item[attr] = url.slice(0, len);
 				}
-			}, 
+			},
 			less: function(item, file, cmd) {
+				if (!this.is_less(item)) return;
+
 				// this.log('reloaded less file:', item);
 				var ref = this, style = item.nextSibling, url = item.href;
 
-				// if neither a .less extension, nor a less declaration, ignore it
-				if (!((item.rel && item.rel === 'stylesheet/less') || file.slice(file.lastIndexOf('.') + 1) === 'less'))
-					return
 				// use the less-generated style element for updating
 				if (!style.id || (!style.id.startsWith('less:') && !style.id.startsWith('less-webloader:')))
 					return this.log('when updating %s, found this style:', file, style);
@@ -175,11 +188,13 @@ function WebLoader() {
 				new Ajax.Request(url, {
 					onFailure: function(response) {
 						ref.log('could not refresh %s!', url);
-					}, 
+					},
 					onSuccess: function(response) {
 						if (this.debug > 1)
 							ref.log('ajax: updating %s with %s', url, response.responseText)
-						style.textContent = ref.less_parse(response.responseText);
+						var parsed = ref.less_parse(response.responseText);
+						style.textContent = parsed;
+						this.send_command('parsed_less', url, parsed);
 					}
 				});
 			}
@@ -204,6 +219,12 @@ function WebLoader() {
 
 
 	/// less and css-related stuff
+
+	this.is_less = function(item) {
+		// less files should have a .less extension and stylesheet/less declared
+		var file = item.href.split('?')[0];
+		return file.slice(file.lastIndexOf('.') + 1) === 'less' && item.rel && item.rel === 'stylesheet/less';
+	}
 
 	this.less_handle = function(file) {
 		return (file = this.file_handle(file)) && 'less:' + file.replace(/[^\w\.-]+/g, '-').slice(1, file.lastIndexOf('.'));
@@ -236,7 +257,7 @@ function WebLoader() {
 		var start = id + ' {\n', ending = "}\n";
 		var has_this_id = function(a) { return a.textContent.indexOf('\n' + id) > -1 || a.textContent.slice(0, id.length) === id; }
 		var cut_content = function(target) {
-			var i = target.textContent.indexOf(start), 
+			var i = target.textContent.indexOf(start),
 				j = target.textContent.indexOf(ending, i);
 			// console.log(('removing "' + start + '...' + ending + '" from ' + target.id).replace(/\n/g, '|'))
 			target.textContent = target.textContent.slice(0, i) + target.textContent.slice(j);
@@ -245,7 +266,7 @@ function WebLoader() {
 	}
 
 	this.less_update = function(file, styles) {
-		var handle = this.file_handle(file), 
+		var handle = this.file_handle(file),
 			sheet = this.less_element(handle),
 			id = styles.slice(0, styles.indexOf('{')).strip(), // css selector part
 			css, next
@@ -255,7 +276,7 @@ function WebLoader() {
 		id = this.custom_less_handle(handle, id);
 		styles = this.less_parse(styles);
 
-		if (this.debug > 1) 
+		if (this.debug > 1)
 			this.log('updating "%s", style id "%s", with:\n%s', handle.slice(handle.lastIndexOf('/') + 1), id, styles)
 
 		// lookup or make a style element, put after the "less:" element
@@ -285,8 +306,8 @@ function WebLoader() {
 		if (!less || !less.Parser) return this.log('no less object found, is a less.js included?');
 		var err, result
 		(new less.Parser).parse(styles, function(err, tree) { result = [err, tree]; });
-		return (err = result[0]) ? 
-			this.log('less parser: ' + err.message + ' (column ' + err.index + ')') : 
+		return (err = result[0]) ?
+			this.log('less parser: ' + err.message + ' (column ' + err.index + ')') :
 			result[1].toCSS();
 	}
 
@@ -306,6 +327,7 @@ function WebLoader() {
 				this.request_watching();
 			},
 			function onclose() {
+				if (!this.server.re_min_interval) return this.log('connection closed, and reconnect is turned off.');
 				if (!this.server.re_timer) this.log('connection closed, running reconnect attempts...');
 				this.reconnect(0);
 				this.socket = null;
@@ -321,6 +343,7 @@ function WebLoader() {
 	}
 
 	this.reconnect = function(server, after) {
+		if (!this.server.re_min_interval) return
 		if (server) this.server = server;
 		var ref = this, attempt = function() {
 			return (ref.socket && ref.socket.close()) || ref.connect();
@@ -381,15 +404,15 @@ function WebLoader() {
 			'//'
 		]
 		var domains = [
-			"localhost", 
-			"127.0.0.1", 
+			"localhost",
+			"127.0.0.1",
 			"some.domain.com"
 		]
 		var paths = [
-			'simple/', 
-			'some/path/', 
-			'some_more-paths/', 
-			'some_more-paths/qu%20te/long/-in/fact/', 
+			'simple/',
+			'some/path/',
+			'some_more-paths/',
+			'some_more-paths/qu%20te/long/-in/fact/',
 			'/'
 		]
 		var files = [
@@ -398,8 +421,8 @@ function WebLoader() {
 			'A12FU_1a.less'
 		]
 		var params = [
-			'simple=1', 
-			'some=more&vars=__3', 
+			'simple=1',
+			'some=more&vars=__3',
 			'some_illegal_too'
 		]
 		var hosts = ['some-server-host', '']
@@ -427,7 +450,7 @@ function WebLoader() {
 		// console.log(file_pattern)
 		// console.log((result[0].match(file_pattern) || []).join('\n'))
 
-		console.log('file pattern test: %s/%s errors%s', errors.length, result.length, 
+		console.log('file pattern test: %s/%s errors%s', errors.length, result.length,
 			(errors.length || '') && ', example: ' + errors[0] + '\n' + (errors[0].match(file_pattern) || []).join('\n'))
 		return !errors;
 	}

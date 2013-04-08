@@ -15,6 +15,7 @@ class Webloader(object):
 		self.prefix = self.settings.get('message_prefix', '[Webloader] ')
 		self.logfile = os.path.join(sublime.packages_path(), 'Webloader', self.settings.get('logfile', 'webloader.log'))
 		self.console_log = self.settings.get('console_log', 0)
+		self.watch_events = self.settings.get('watch_events', {})
 		self._server = None
 
 		if self.get_server(if_running=1):
@@ -45,7 +46,7 @@ class Webloader(object):
 			self.log('invalid server address %s, aborting (check plugin settings)' % str(address))
 			raise Exception('invalid server address %s' % str(address))
 
-		self._server = sublime.webloader_server = modules.server.Server(address, plugin=self, log=self.log, debug=10).start()
+		self._server = sublime.webloader_server = modules.server.Server(address, plugin=self, log=self.log, debug=100).start()
 		self.log('\nserver started on %s:%d ' % self._server.address)
 		return self._server
 
@@ -101,7 +102,7 @@ class WebloaderEvents(sublime_plugin.EventListener):
 	"""
 	Plugin contoller; listens to events, sends changes as short http requests.
 
-	Keeps track of files the clients requested, and sends changes about the 
+	Keeps track of files the clients requested, and sends changes about the
 	current file to the server (which forwards it to any interested clients).
 	For css/less files it sends live updates on each (file-changing) keypress.
 	"""
@@ -109,25 +110,19 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		self.debug_level = webloader.settings.get('debug_level', 0)
 		self.parser = modules.css.Parser()
 		self.last_change = modules.css.Block()
-		self.active = False
-		self.live_update = False
-		self.refresh_files = True
+		self.focused = True # Sublime window active
+		self.active = False # watching the currently open file
+		self.live_update = False # live-updating changes in current file
 		self.files = {}
-		self.default_commands = {
-			'open': 'reload_file', 
-			'save': 'reload_file', 
-			'close': 'reload_file', 
-			'edit': 'update', 
+		self.default_events = {
+			'open': 'reload_file',
+			'save': 'reload_file',
+			'close': 'reload_file',
+			'edit': 'update',
 		}
 
-		# TODO: event classes
-		def single_event(event):
-			return [event, 0] if not isinstance(event, list) else \
-				(event + [0])[0:2] if len(event) < 3 else \
-				event[0:1] + [event[1:]]
-
 		events = webloader.settings.get('watch_events', {})
-		self.watch_events = dict([ext, dict(map(single_event, ev))] for ext, ev in events.iteritems())
+		self.watch_events = dict([ext, dict(map(self.parse_event, ev))] for ext, ev in events.iteritems())
 
 	def log(self, message, level=1, console=1, status=1):
 		"""Prints to the sublime console and status line, if debug_level > 0."""
@@ -136,109 +131,69 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		if console: print message
 		if status: sublime.status_message(message)
 
+	def parse_event(self, event):
+		"""Interprets an event definition, returns [event, [action1, ...]]"""
+		return ['', 0] if not event else \
+			[event, 0] if not isinstance(event, list) else \
+			(event + [0])[0:2] if len(event) < 3 else \
+			event[0:1] + [event[1:]]
+
 	def filename(self, f):
 		return (f.file_name() if isinstance(f, sublime.View) else f).replace(os.path.sep, '/')
 
-	def update_files(self, response=None, body=None):
-		if not self.refresh_files and self.files and not response: return 0
-
-		# don't refresh files until a window reactivation (to avoid shooting file list requests)
-		self.refresh_files = False
-
-		# ask for a fresh file list (send an empty message, expect a file on each line)
-		if not response: response, body = self.message.send('')
-
-		if not response or response.status != 200:
-			self.live_update = False
-			self.log('watch server not found, ignoring edits temporarily.')
-			return 0
-
-		if body: body = filter(None, map(str.strip, body.split('\n')))
-		if not body:
-			if not self.files: self.log('no files to watch yet (refresh your browser, and check the javascript console).')
-			return 0
-
-		if self.debug_level > 1: self.log('new file list: ' + ', '.join(body))
-		elif not self.files: self.log('watching files: ' + ', '.join(map(lambda x: x.rsplit('/', 2).pop(), body)))
-
-		self.files = dict.fromkeys(body, 1)
-		return len(body)
-
-	def watching_file(self, filename):
-		"""Checks if this file matches one of the watched files (self.files)
-
-		The match is flexible: */some/path.less matches /some/path.less
-		If found, store the filepath:fileurl pair; if not, flag it as non-watched.
-		After a window refocus, the next event will request a fresh file list,
-		so a non-watched file will re-checked then.
-
-		If self.files[filename] exists, it can be:
-		1: a to-be-watched file handle (clients track files by basepath + filename)
-		str/unicode: the file handle matching this filename
-		None: a file which can be watched (see settings), but no clients asked for it
-		"""
-		filename = self.filename(filename)
-
-		if filename not in self.files:
-			self.files[filename] = next((handle for handle, watched in self.files.iteritems() if watched and filename.endswith(handle)), None)
-
-		return self.files[filename]
-
 	def file_type_events(self, filename='', event=''):
+		"""
+		Returns events defined for this filetype or actions for an event.
+
+		Either None (not watching this filetype or event), or a dict of events
+		(if event is not specified), or a list of actions (non-empty).
+		"""
+
 		filename = self.filename(filename)
 		if not filename: return 0
 		events = self.watch_events.get(filename.rsplit('.', 2).pop())
-		return events.get(unicode(event)) if events and event else events
+		if not event or not events: return events or None
+
+		events = events.get(unicode(event))
+		if not events and events is not None: events = self.default_events.get(event)
+		if not events: return None
+		return events if isinstance(events, list) else [events]
 
 	def file_event(self, view, event, args=None, content=''):
-
+		if not self.active: return
 		filename = self.filename(view)
-		if not filename: return self.log('an unknown file\'s %sevent was ignored.' % (event and event + ' '))
+		if not filename: return
 
 		# when developing, saving the plugin interrupts with tests, disabled for now
 		if filename.endswith('Webloader/plugin.py'): return
 
-		# None: not watching this file type
-		# 0 or '' or []: default action for this event
-		# str: specified action for this event
-		# list of strings: more than one action for this event
 		commands = self.file_type_events(filename, event)
-		if not commands and commands is not None: commands = self.default_commands.get(event, None)
 		if not commands: return
-		if not isinstance(commands, list): commands = [commands]
-
 		args = ' '.join(args) if isinstance(args, list) else args or ''
 		if args: commands = map(lambda x: '%s %s' % (x, args), commands)
 
 		[webloader.command(cmd, filename, content) for cmd in commands]
 
-	def xxon_activated(self, view):
+	def on_activated(self, view):
 		if not view.file_name(): return
-		events = self.file_type_events(view)
-		self.active = int(bool(events))
-		self.live_update = bool(events and events.get('edit') is not None)
-		if self.refresh_files: self.update_files()
+		self.focused = True
+		events = self.file_type_events(view) # anything for current file?
+		self.active = bool(events and True)
+		self.live_update = bool(events and events.get('edit') and True)
 
-	def xxon_deactivated(self, view=None):
-		self.refresh_files = None
+	def on_deactivated(self, view=None):
+		self.focused = None
 		sublime.set_timeout(lambda: self.post_deactivated(view), 50)
 
 	def post_deactivated(self, view=None):
-		if self.refresh_files is None: self.refresh_files = True
-	
-	def xxon_load(self, view):
-		self.file_event(view, 'open', 'opened')
+		if self.focused is None: self.focused = True
 
-	def on_post_save(self, view):
-		self.file_event(view, 'save', 'saved')
+	def on_load(self, view): self.file_event(view, 'open', 'opened')
+	def on_post_save(self, view): self.file_event(view, 'save', 'saved')
+	def on_close(self, view): self.file_event(view, 'close', 'closed')
 
-	def xxon_close(self, view):
-		self.file_event(view, 'close', 'closed')
-
-	def xxon_modified(self, view):
-		if not self.live_update: return
-		self.update_files()
-		if not self.watching_file(view): return
+	def on_modified(self, view):
+		if not (self.focused and self.active and self.live_update): return
 
 		# TODO:
 		# 1. validate the currently edited "key:value;" against known keys, skip if unknown
@@ -247,7 +202,6 @@ class WebloaderEvents(sublime_plugin.EventListener):
 
 		cursor = view.sel()[0]
 		self.log("updating line: %s" % view.substr(view.line(cursor)), status=1)
-
 		block_info = self.parser.block_info(cursor.begin(), view.substr(sublime.Region(0, view.size())))
 		self.last_change = block_info
 		self.file_event(view, 'edit', content=str(block_info))

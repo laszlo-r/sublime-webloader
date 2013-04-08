@@ -3,13 +3,13 @@
 	// If you change this, change the js script too: 'webloader.js?server=host:port'
 	// Then reload the plugin (restart Sublime), and your page.
 
-	"host": "localhost", 
-	"port": 9000, 
+	"host": "localhost",
+	"port": 9000,
 
 
 	// Defines what types of files should be watched, and what should happen at events.
 
-	// By default, open/close/save events reload the file on the page, running js, 
+	// By default, open/close/save events reload the file on the page, running js,
 	// resetting css, and re-parsing less files. Edit events send updates while typing,
 	// these are only supported for less/css currently.
 
@@ -17,28 +17,28 @@
 
 	"watch_events": {
 		// These are watched by default.
-		"less": ["edit", "open", "close", "save"], 
-		"css": ["edit", "open", "close", "save"], 
-		"js": ["save"], 
+		"less": ["edit", "open", "close", "save"],
+		"css": ["edit", "open", "close", "save"],
+		"js": ["save"],
 
 		// These only work if you enable them in the client_watchlist setting below.
-		"html": ["save"], 
-		"py": ["close", "save"], 
-		"php": ["close", "save"], 
+		"html": ["save"],
+		"pyx": ["close", "save"],
+		"php": ["close", "save"],
 
 		// You can also add more file extensions.
-		// "some_extension": ["save"], 
+		// "some_extension": ["save"],
 
 		// Or redefine actions (run the page_reload after saving .html files).
-		"html": [["save", "page_reload"]], 
-		"html": [["save", "page_reload", "other_command"]], 
+		// "html": [["save", "page_reload"]],
+		// "html": [["save", "page_reload", "other_command"]],
 
 		// Or add custom actions to the js client (see the readme).
-		// "html": [["open", "my_js_command"]], 
+		// "html": [["open", "my_js_command"]],
 
-		// Because you will inevitably forget it.
-		"the_trailing_comma_holder": []
-	}, 
+		// Because you will inevitably forget this.
+		"": []
+	},
 
 
 	// By default, html/py/php changes are not sent to clients, unless you allow this.
@@ -47,7 +47,7 @@
 	"client_watchlist": {
 
 		// Simplest mode:
-		// "*": '', // Means: every webloader-using page should refresh when you save.
+		"*": "", // Means: every webloader-using page should refresh when you save.
 
 		// You should uncomment the above line and ignore the rest, if either:
 		// - you only work on a single project at once, with a few open pages
@@ -58,34 +58,34 @@
 
 
 		// With proper paths:
-		// "/your/docroot/myproject": "/myproject", 
+		// "/your/docroot/myproject": "/myproject",
 
 		// Defines how a folder matches to page urls. If you uncomment the above,
 		// saved files in /your/docroot/myproject/* will refresh any active page
 		// under /myproject/.
 		// Protip: see your EXACT file paths in the Sublime window title.
-		// Another: you can use '/' on every platform. '\\'' is silly.
+		// Another: you can use "/" on every platform. "\\" is silly.
 
 
 		// For virthosts: docroot/localvirthost/ -> localvirthost.com/
-		// "/your/docroot/localvirthost*": "/", 
-		// "/your/docroot/localvirthost*": "/same/page/url", 
-		// "/your/docroot/differenthost*": "/same/page/url", 
+		// "/your/docroot/localvirthost*": "/",
+		// "/your/docroot/localvirthost*": "/same/page/url",
+		// "/your/docroot/differenthost*": "/same/page/url",
 
 
 		// More examples (you can define several):
 
 		// Localhost: if docroot/myproject is sitting on http://localhost/project/
-		// "/your/docroot/myproject": "/myproject/some/page", 
-		// "C:\\your\\docroot\\myproject": "/myproject/some/page", 
+		// "/your/docroot/myproject": "/myproject/some/page",
+		// "C:\\your\\docroot\\myproject": "/myproject/some/page",
 		// Only for certain folder and urls:
 
 
 
-		// How to link a directory with an url path; changes to files under this directory 
+		// How to link a directory with an url path; changes to files under this directory
 		// will be sent to matching pages like this: /your/docroot/* -> /some/page/*
 		// (The Sublime window title shows the exact file paths.)
-		// "/your/docroot/myproject": "/some/page", 
+		// "/your/docroot/myproject": "/some/page",
 
 
 		// Long explanation:
@@ -98,8 +98,8 @@
 		//   C:\your\docroot\myproject\some\page\media\my.less
 
 		// It's easy matching files to pages if we define "where to root url starts".
-		// 
-		// When you edit or save my.less, it matches the full path, so any open page using 
+		//
+		// When you edit or save my.less, it matches the full path, so any open page using
 		// webloader.js and my.less can get these changes.
 
 		// But often you have a much more complicated environment, path structures, virthosts,
@@ -107,7 +107,9 @@
 		// See the examples below to link your project folder with the website's path.
 
 
-	}, 
+		// Because you will inevitably forget this.
+		"": ""
+	},
 
 
 	// Things you shouldn't need to care about, unless you want to mess around.
@@ -116,6 +118,6 @@
 	"logfile": "webloader.log", // path relative to plugin folder
 	"console_log": 0, // should also log to the console
 	"message_prefix": "[Webloader] ", // console message prefix
-	"debug_level": 1, 
+	"debug_level": 1,
 	"more": "..."
 }

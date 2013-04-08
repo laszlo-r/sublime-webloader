@@ -270,8 +270,7 @@ class Client(Thread, WebSocketHandler):
 		self.log("<", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
 		# server could stop, on_read method freak out, etc
 		try:
-			self.on_read(message)
-			self.server.on_message(self, message)
+			self.on_read(message) # call self.server.on_message() if needed
 			return len(message)
 		# ---------------------------------------------
 		# this can return very uninformative exceptions
