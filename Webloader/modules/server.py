@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-import urlparse, json, re, itertools
+import urllib, urlparse, json, re, itertools
 import websocket
 
 class Message(dict):
@@ -65,44 +65,10 @@ class Client(websocket.Client):
 
 		self.log('+', 'page: %s' % self.page)
 
-	def watches(self, filename):
-		"""Returns whether this client watches this file."""
-		if not isinstance(filename, (str, unicode)): return False
-		if not filename in self.files:
-			# check exact file paths first, then patterns, then cache the result
-			patterns = (x for x in itertools.chain(self.files.iteritems(), self.patterns.iteritems()))
-			print 'f:', filename
-			matches = lambda x: self.file_matches(x, filename)
-			self.files[filename] = next(itertools.ifilter(None, itertools.imap(matches, patterns)), None)
-			print 'r:', self.files[filename]
-		return self.files[filename]
-
 	def watch_files(self, files):
 		if not (files and isinstance(files, list)): return
 		self.files = dict.fromkeys(files)
 		self.update_patterns()
-
-	def file_matches(self, pattern, path):
-		"""Returns whether path matches pattern."""
-
-		# path is a full filepath + filename (always with '/' separators)
-
-		# pattern is a tuple of either:
-		# (/some/nonmatching/file.html, False) # already checked, return false
-		# (/some/matching/file.html, True)     # already matching, return path
-		# (/a/resource/url/likethis.css, None) # return if matches path
-		# (/regexp/pattern/[\w]+\.html, reobj) # return reobj.match(path)
-
-		if not pattern or not isinstance(pattern, tuple) or len(pattern) != 2: return False
-		print pattern
-		pattern, value = pattern
-		if isinstance(value, bool): return value and pattern
-		if value is None: return path.endswith(pattern) and pattern
-		try:
-			print value.match(path), value.match(path).group(1)
-			return value.match(path).group(1)
-		except:
-			return False
 
 	# make tests
 	def update_patterns(self):
@@ -117,16 +83,6 @@ class Client(websocket.Client):
 		the resource files, and creates a "common/*.html" -like pattern.
 		"""
 
-		# self.files = {
-		# 	'/git/sublime-webloader/WebloaderXXXXX/demo/prototype.js': None,
-		# 	'/git/sublime-webloader/Webloader/demoXXXXX/webloader.js': None,
-		# 	'/git/sublime-webloader/Webloader/demo/sample.less': None,
-		# 	'/gitXXXXX/sublime-webloader/Webloader/demo/sample.css': None,
-		# 	'/git/sublime-webloaderXXXXX/Webloader/demo/webloader.less': None,
-		# 	'/not/relevant/path.css': False,
-		# 	'/not/relevant/path.html': True
-		# }
-
 		# path = urllib.urlencode({'some': 'ő é í ű'})
 		# path = '/git/sublime-webloader/Web loader/ődemo/'
 		# path = '/git/sublime-webloader/Web%20loader/%C5%91demo/'
@@ -135,8 +91,13 @@ class Client(websocket.Client):
 
 		# TODO: refactor/simplify
 		def longest_common(path, files, sep='/'):
+			watched_url = lambda url, value: value is None and url[0] == sep
+			exploded = lambda url: [url] + url[1:].split(sep)
+			decoded = lambda url: urllib.unquote_plus(url)
+
 			path = path.split(sep)
-			files = [[k] + k[1:].split(sep) for k, v in files.iteritems() if v is None and k[0] == sep]
+			files = [exploded(decoded(u)) for u, v in files.iteritems() if watched_url(u, v)]
+
 			res = None
 			for i in xrange(1, len(path)):
 				files = [x for x in files if x[i] == path[i]]
@@ -156,18 +117,51 @@ class Client(websocket.Client):
 			if x and not x in self.noregexp_extensions and isinstance(x, (str, unicode))]
 		if not extensions: return # nothing configured, beside the excluded ones
 		extensions = '|'.join(extensions)
-		fullpath = r'.*(%s[\w\._/-]+\.(?:%s))$' % (common, extensions)
+		fullpath = r'.*(%s)([\w\._/-]+\.(?:%s))$' % (common, extensions)
 		common = '*%s*.(%s)' % (common, extensions)
 		self.patterns[common] = re.compile(fullpath)
 
+	def file_matches(self, pattern, path):
+		"""Returns whether path matches pattern."""
+
+		# path is a full filepath + filename (always with '/' separators)
+
+		# pattern is a tuple of either:    # meaning and return values:
+		# (/nonmatching/file.html, False)  # already checked, false
+		# (/www/x/a/b.html, /a/b.html)     # already checked match, pattern[1]
+		# (/a/b.html, None)                # return url if path.endswith(url)
+		# (*/path/*.html, regexpobj)       # if path matches, return group(1)
+
+		if not pattern or not isinstance(pattern, tuple) or len(pattern) != 2: return False
+		patt, value = pattern
+		if value is False or patt == path: return value
+		if value is None: return path.endswith(patt) and patt
+		try: return '*%s%s' % (value.match(path).group(1), value.match(path).group(2))
+		except: pass
+		return False
+
+	def watches(self, filename):
+		"""Returns whether this client watches this file."""
+		if not isinstance(filename, (str, unicode)): return False
+		if not filename in self.files:
+			# check exact file paths first, then patterns, then cache the result
+			patterns = (x for x in itertools.chain(self.files.iteritems(), self.patterns.iteritems()))
+			matches = lambda x: self.file_matches(x, filename)
+			self.files[filename] = next(itertools.ifilter(None, itertools.imap(matches, patterns)), False)
+		return filename if self.files[filename] is None else self.files[filename]
+
 	def send(self, message):
 		sending = super(Client, self).send
-		if message.get('filename'):
-			print repr(message.filename)
-			filename = self.watches(message.filename)
-			print repr(filename)
-			if isinstance(filename, (str, unicode)): message.filename = filename
-			sending(message.pack())
+		filename = message.get('filename')
+		if filename:
+			matched = self.watches(filename)
+			if not matched: return
+			if matched[0] == '*': # regexp match
+				# don't send the full filename out (privacy/hacking reasons)
+				message.filename = matched
+				message.cmd = 'reload_page'
+			else: message.filename = matched
+		sending(message.pack())
 
 	def on_read(self, message):
 		"""Parses client messages; currently only supports the watch and message commands."""

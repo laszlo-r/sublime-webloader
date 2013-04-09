@@ -1,39 +1,43 @@
 {
 	// The host and port the server listens to.
-	// If you change this, change the js script too: 'webloader.js?server=host:port'
-	// Then reload the plugin (restart Sublime), and your page.
+	// If you change this, update your script tag: 'webloader.js?server=host:port'
+	// Then restart Sublime (or ctrl-shift-c and 'restart'), and reload your page.
 
-	"host": "localhost",
-	"port": 9000,
+	"server": "localhost:9000",
+
+	// By default, only localhost clients are allowed for security reasons.
+	// Allow any clients with "*", or set ips and masks: "192.168.0.1 10.0.*"
+
+	"clients": "",
 
 
 	// Defines what types of files should be watched, and what should happen at events.
 
 	// By default, open/close/save events reload the file on the page, running js,
-	// resetting css, and re-parsing less files. Edit events send updates while typing,
-	// these are only supported for less/css currently.
+	// resetting css, and re-parsing less files. If other files, like html, seem to be
+	// under the same path as the js/css/less files, saving them will reload the page.
+	// For css/less, edit events send live updates as you type.
 
-	// No need to change these settings if you only want to watch js/css/less changes.
+	// If your html or php files don't update the page, see the "sites" setting.
 
 	"watch_events": {
-		// These are watched by default.
+		// These are watched by default:
 		"less": ["edit", "open", "close", "save"],
 		"css": ["edit", "open", "close", "save"],
 		"js": ["save"],
-
-		// These only work if you enable them in the client_watchlist setting below.
 		"html": ["save"],
 		"pyx": ["close", "save"],
 		"php": ["close", "save"],
 
-		// You can also add more file extensions.
-		// "some_extension": ["save"],
+		// You can also add more file extensions:
+		// "xml": ["save"],
+		// "template": ["save"],
 
-		// Or redefine actions (run the page_reload after saving .html files).
+		// Or redefine actions (run the page_reload command after saving).
 		// "html": [["save", "page_reload"]],
-		// "html": [["save", "page_reload", "other_command"]],
+		// "html": [["save", "page_reload", "another_command"]],
 
-		// Or add custom actions to the js client (see the readme).
+		// Or if you added custom actions to the js client (see the readme).
 		// "html": [["open", "my_js_command"]],
 
 		// Because you will inevitably forget this.
@@ -41,70 +45,51 @@
 	},
 
 
-	// By default, html/py/php changes are not sent to clients, unless you allow this.
-	// If you don't mind, ignore this setting. If you use virthosts though, read on.
+	// Often your project directories match to the page urls:
+	//  /some/path/project/         localhost/project/
+	//  /some/path/virthost.com/    virthost.com/
 
-	"client_watchlist": {
+	// The plugin will try to figure out this, and reload pages when files
+	// in the project dir are saved. Try it. If saving didn't reload anything,
+	// or your dev environment is not typical, see the settings below.
 
-		// Simplest mode:
-		"*": "", // Means: every webloader-using page should refresh when you save.
+	"sites": {
+		// Files saved under the project folder should refresh these pages:
+		// "/var/www/folder/project/": "localhost/differentproject/",
+		// "c:/xampp/htdocs/project/": "localhost/differentproject/",
 
-		// You should uncomment the above line and ignore the rest, if either:
-		// - you only work on a single project at once, with a few open pages
-		// - or your file paths match to the urls, like these:
-		//   /home/www/project/x.html     -> localhost/project/x.html?y=1
-		//   /home/www/project/index.html -> localhost/project/?y=1
-		//   /home/www/another/a/b.php    -> localhost/another/a/b.php#c
+		// A virthost folder maps to a different url:
+		// "/var/www/projectname/": "projectname.virthosts.local/",
 
+		// Only update certain pages when templates are saved:
+		// "/www/project/templates/html/": "localhost/project/thesepages/",
 
-		// With proper paths:
-		// "/your/docroot/myproject": "/myproject",
-
-		// Defines how a folder matches to page urls. If you uncomment the above,
-		// saved files in /your/docroot/myproject/* will refresh any active page
-		// under /myproject/.
+		// If you use a non-typical environment, or folder structures,
+		// virthosts, aliases, symlinks, etc, define something like the above.
 		// Protip: see your EXACT file paths in the Sublime window title.
 		// Another: you can use "/" on every platform. "\\" is silly.
 
 
-		// For virthosts: docroot/localvirthost/ -> localvirthost.com/
-		// "/your/docroot/localvirthost*": "/",
-		// "/your/docroot/localvirthost*": "/same/page/url",
-		// "/your/docroot/differenthost*": "/same/page/url",
 
+		// Some info on how the default matching works:
 
-		// More examples (you can define several):
+		// If the page includes at least one js or css (static linked files)
+		// from somewhere under the project folder, the root page is guessed.
+		// When you save html/php/py files whose paths match this root url,
+		// any open pages with that url will refresh. Example:
 
-		// Localhost: if docroot/myproject is sitting on http://localhost/project/
-		// "/your/docroot/myproject": "/myproject/some/page",
-		// "C:\\your\\docroot\\myproject": "/myproject/some/page",
-		// Only for certain folder and urls:
+		//  localhost/project/some/sub/page   (some page you are on)
+		//  localhost/project/js/some.js      (a static file on the page)
+		//  localhost/project/                (guessed project root url)
+		//          */project/*.html          (created pattern (simplified))
+		//  /home/www/project/tpl/some.html   (a file matching this pattern)
 
-
-
-		// How to link a directory with an url path; changes to files under this directory
-		// will be sent to matching pages like this: /your/docroot/* -> /some/page/*
-		// (The Sublime window title shows the exact file paths.)
-		// "/your/docroot/myproject": "/some/page",
-
-
-		// Long explanation:
-
-		// The plugin identifies pages by their path, files by their full filepath:
-		//   domain.com/some/page/index.html           ->  /some/page
-		//   domain.com/some/page/media/my.less        ->  /some/page/media/my.less
-		// And Sublime sees paths like this:
-		//     /your/docroot/myproject/some/page/media/my.less
-		//   C:\your\docroot\myproject\some\page\media\my.less
-
-		// It's easy matching files to pages if we define "where to root url starts".
-		//
-		// When you edit or save my.less, it matches the full path, so any open page using
-		// webloader.js and my.less can get these changes.
-
-		// But often you have a much more complicated environment, path structures, virthosts,
-		// aliases, several pages running from various projects, etc.
-		// See the examples below to link your project folder with the website's path.
+		// If the page is a virthost (not an ip or localhost, and has a dot):
+		//       virthost.com/some/sub/page   (some page you are on)
+		//       virthost.com/js/some.js      (a static file on the page)
+		//       virthost.com/                (guessed project root url)
+		//     */virthost.com/*.html          (created pattern (simplified))
+		//  /www/virthost.com/tpl/some.html   (a file matching this pattern)
 
 
 		// Because you will inevitably forget this.

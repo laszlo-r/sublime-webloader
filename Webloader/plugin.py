@@ -12,6 +12,8 @@ def ignored(*exceptions):
 class Webloader(object):
 	def __init__(self):
 		self.settings = sublime.load_settings("Webloader.sublime-settings")
+		address = self.settings.get('server', 'localhost:9000').split(':')
+		self.server_address = (address[0], int(address[1]))
 		self.prefix = self.settings.get('message_prefix', '[Webloader] ')
 		self.logfile = os.path.join(sublime.packages_path(), 'Webloader', self.settings.get('logfile', 'webloader.log'))
 		self.console_log = self.settings.get('console_log', 0)
@@ -19,7 +21,7 @@ class Webloader(object):
 		self._server = None
 
 		if self.get_server(if_running=1):
-			return self.log('\nstarted -- server running on %s:%d ' % self._server.address)
+			return self.log('\nstarted -- server already running on %s:%d ' % self._server.address)
 		self.check_server()
 
 	def check_server(self):
@@ -27,26 +29,26 @@ class Webloader(object):
 		delay = 0
 		with ignored(Exception): delay = float(self.settings.get('init_server_delay'))
 		delay = min(max(delay, 0), 20)
-
 		self.log('\nstarted -- checking server in %d seconds' % delay)
 		if delay: sublime.set_timeout(self.get_server, int(delay * 1000))
 
 	def get_server(self, if_running=0):
-		"""Checks or restarts the server, and returns a server instance (or raises an exception)."""
+		"""Checks or restarts the server; always returns the current server."""
 		if not self._server and hasattr(sublime, 'webloader_server'):
 			self._server = sublime.webloader_server
 			self._server.plugin = self
+			if self.server_address[1] != self._server.address[1]: self.server.stop()
 
 		# true if running OR initializing (False)
 		if self._server and self._server.running is not None: return self._server
 		if if_running: return None
 
-		address = self.settings.get('host'), self.settings.get('port')
-		if None in address:
-			self.log('invalid server address %s, aborting (check plugin settings)' % str(address))
-			raise Exception('invalid server address %s' % str(address))
+		if not self.server_address:
+			self.log('invalid server address %s (check plugin settings)' % str(self.server_address))
+			raise Exception('invalid server address %s' % str(self.server_address))
 
-		self._server = sublime.webloader_server = modules.server.Server(address, plugin=self, log=self.log, debug=100).start()
+		self._server = sublime.webloader_server = \
+			modules.server.Server(self.server_address, plugin=self, log=self.log, debug=100).start()
 		self.log('\nserver started on %s:%d ' % self._server.address)
 		return self._server
 
@@ -62,7 +64,11 @@ class Webloader(object):
 
 		if self.server.running is None: return # not running, or starting
 
-		self.server.command(cmd, filename, content)
+		def runcommand():
+			try: self.server.command(cmd, filename, content)
+			except Exception as e: self.log('Could not send command:', e)
+
+		modules.websocket.Thread(target=runcommand).start()
 
 	def message(self, client, message):
 		client_id = client.page
@@ -100,11 +106,12 @@ webloader = Webloader()
 
 class WebloaderEvents(sublime_plugin.EventListener):
 	"""
-	Plugin contoller; listens to events, sends changes as short http requests.
+	On watch_events, sends commands for the current file to the webloader.
 
-	Keeps track of files the clients requested, and sends changes about the
-	current file to the server (which forwards it to any interested clients).
-	For css/less files it sends live updates on each (file-changing) keypress.
+	If there is an event for the current file extension in watch_events
+	(defined in settings), calls webloader.command(). Also tracks the
+	window's status: is it focused; active (any events for current file);
+	live edit updates are enabled for current file.
 	"""
 	def __init__(self):
 		self.debug_level = webloader.settings.get('debug_level', 0)
@@ -123,13 +130,7 @@ class WebloaderEvents(sublime_plugin.EventListener):
 
 		events = webloader.settings.get('watch_events', {})
 		self.watch_events = dict([ext, dict(map(self.parse_event, ev))] for ext, ev in events.iteritems())
-
-	def log(self, message, level=1, console=1, status=1):
-		"""Prints to the sublime console and status line, if debug_level > 0."""
-		if not (console or status) or self.debug_level < level: return
-		message = webloader.settings.get('message_prefix', '') + message
-		if console: print message
-		if status: sublime.status_message(message)
+		sublime.webloader_events = self
 
 	def parse_event(self, event):
 		"""Interprets an event definition, returns [event, [action1, ...]]"""
@@ -139,7 +140,7 @@ class WebloaderEvents(sublime_plugin.EventListener):
 			event[0:1] + [event[1:]]
 
 	def filename(self, f):
-		return (f.file_name() if isinstance(f, sublime.View) else f).replace(os.path.sep, '/')
+		return ((f.file_name() or '') if isinstance(f, sublime.View) else f).replace(os.path.sep, '/')
 
 	def file_type_events(self, filename='', event=''):
 		"""
@@ -175,11 +176,10 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		[webloader.command(cmd, filename, content) for cmd in commands]
 
 	def on_activated(self, view):
-		if not view.file_name(): return
 		self.focused = True
 		events = self.file_type_events(view) # anything for current file?
 		self.active = bool(events and True)
-		self.live_update = bool(events and events.get('edit') and True)
+		self.live_update = bool(events and events.get('edit', None) is not None)
 
 	def on_deactivated(self, view=None):
 		self.focused = None
@@ -201,7 +201,8 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		# 3. figure out an efficient way for selector and bracket changes (don't send a whole file)
 
 		cursor = view.sel()[0]
-		self.log("updating line: %s" % view.substr(view.line(cursor)), status=1)
+		line = view.substr(view.line(cursor))
+		sublime.status_message("%supdating line: %s" % (webloader.prefix, line))
 		block_info = self.parser.block_info(cursor.begin(), view.substr(sublime.Region(0, view.size())))
 		self.last_change = block_info
 		self.file_event(view, 'edit', content=str(block_info))

@@ -103,11 +103,12 @@ function WebLoader() {
 		var item = file && typeof file === 'string' ? this.file_element(file) : file;
 		if (typeof cmd === 'string') cmd = [cmd];
 
-		return this.commands[cmd[0]] ?
-			this.commands[cmd[0]].apply(this, [cmd, item, content]) :
-			this.debug && this.log(
-				'unknown command "%s"\n-- file: "%s"\n-- content (%s):\n%s-- message:',
-				cmd.join(' '), file, content.length, content.replace('\n', '\\n\n') + (content.endsWith('\n') ? '' : '\n'), message);
+		if (!this.commands[cmd[0]] || this.debug)
+			this.log((!this.commands[cmd[0]] ? 'unknown ' : '') +
+				'command "%s" (%s)\n-- file: "%s"\n-- content (%s):\n%s-- message:',
+				cmd.join(' '), $H(message).keys().join(', '), file, content.length,
+				content.replace('\n', '\\n\n') + (!content || content.endsWith('\n') ? '' : '\n'), message);
+		return this.commands[cmd[0]] ? this.commands[cmd[0]].apply(this, [cmd, item || file, content]) : null;
 	}
 
 	this.add_command = function(cmd, f) { this.commands[cmd] = f; }
@@ -124,7 +125,7 @@ function WebLoader() {
 		})
 
 		this.add_command('reload_file', function(cmd, file, content) {
-			if (!file.href && !file.src) return this.log('cannot find the element of "%s"', file)
+			if (!file || (!file.href && !file.src)) return this.log('cannot find the element for "%s"', file)
 			if (file.src && file.src.split('/').pop().split('?')[0] === 'webloader.js') {
 				this.server.re_min_interval = 0;
 				this.socket && this.socket.close();

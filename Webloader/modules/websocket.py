@@ -98,12 +98,19 @@ class Server(Thread):
 	def on_message(self, client, message):
 		pass
 
+	def lock(self, name):
+		name = 'lock_' + name
+		if not hasattr(self, name): setattr(self, name, threading.RLock())
+		return getattr(self, name)
+
+	def set_lock(self, name): return self.lock(name).acquire()
+	def release_lock(self, name): return self.lock(name).release()
+
 	@contextmanager
-	def lock(self, lock):
-		lock = 'lock_' + lock
-		if not hasattr(self, lock): setattr(self, lock, threading.RLock())
-		yield getattr(self, lock).acquire()
-		getattr(self, lock).release()
+	def locked(self, lock=None):
+		if not lock: lock = threading.RLock()
+		yield lock.acquire()
+		lock.release()
 
 	def for_each_client(self, method=None, *args, **kw):
 		# when decorating, called with a single function argument
@@ -173,7 +180,7 @@ class WebSocketHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		self.raw_requestline = self.rfile.readline()
 		self.error_code = self.error_message = None
 		self.parse_request()
-		if self.headers.get("Upgrade", None) != "websocket": return
+		if not hasattr(self, 'headers') or self.headers.get("Upgrade", None) != "websocket": return
 
 		key = self.headers['Sec-WebSocket-Key']
 		digest = b64encode(sha1(key + self.magic).hexdigest().decode('hex'))
@@ -221,10 +228,10 @@ class WebSocketHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		if length <= 125:
 			self.request.send(chr(length))
 		elif length >= 126 and length <= 65535:
-			self.request.send(126)
+			self.request.send(chr(126))
 			self.request.send(struct.pack(">H", length))
 		else:
-			self.request.send(127)
+			self.request.send(chr(127))
 			self.request.send(struct.pack(">Q", length))
 		return self.request.send(message)
 
@@ -240,6 +247,8 @@ class Client(Thread, WebSocketHandler):
 		self.handshake_done = False
 		self.handshake_timeout = time.time() + 5 # stop if handshake is not finished
 		self.running = False
+		self.lock_read = threading.RLock()
+		self.lock_send = threading.RLock()
 		# does the handshake, sets self.headers, self.path (among several others)
 		WebSocketHandler.__init__(self, request, address, server)
 
@@ -260,7 +269,8 @@ class Client(Thread, WebSocketHandler):
 			self.stop()
 
 	def read(self):
-		message = self.read_message() # string or None (timeout)
+		with self.server.locked(self.lock_read):
+			message = self.read_message() # string or None (timeout)
 		if not self.server.running: return self.stop('server closed')
 		if message == '': return self.stop('remote closed')
 		if self.handshake_timeout:
@@ -280,7 +290,8 @@ class Client(Thread, WebSocketHandler):
 	def send(self, message):
 		self.log(">", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
 		self.on_send(message)
-		return self.send_message(message)
+		with self.server.locked(self.lock_send):
+			return self.send_message(message)
 
 	def finish(self): pass
 
