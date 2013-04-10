@@ -70,7 +70,7 @@ function WebLoader() {
 
 	this.send_command = function(cmd, file, content) {
 		if (!cmd) return false
-		return this.socket.send(JSON.stringify({ cmd: cmd, file: file || '', content: content || '' }));
+		return this.socket.send(JSON.stringify({ cmd: cmd, filename: file || '', content: content || '' }));
 	}
 
 	this.parse_command = function(message) {
@@ -177,7 +177,6 @@ function WebLoader() {
 			less: function(item, file, cmd) {
 				if (!this.is_less(item)) return;
 
-				// this.log('reloaded less file:', item);
 				var ref = this, style = item.nextSibling, url = item.href;
 
 				// use the less-generated style element for updating
@@ -191,11 +190,12 @@ function WebLoader() {
 						ref.log('could not refresh %s!', url);
 					},
 					onSuccess: function(response) {
-						if (this.debug > 1)
+						if (ref.debug > 1)
 							ref.log('ajax: updating %s with %s', url, response.responseText)
 						var parsed = ref.less_parse(response.responseText);
 						style.textContent = parsed;
-						this.send_command('parsed_less', url, parsed);
+						if (cmd && cmd[1] === 'save_parsed_less')
+							ref.send_command('parsed_less', ref.file_handle(file), parsed);
 					}
 				});
 			}

@@ -60,9 +60,8 @@ class Server(Thread):
 			self.socket.settimeout(5)
 			self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			self.socket.bind(self.address)
-			self.log('listening on %s:%d%s' % (self.address + \
-				(self.test_mode and ' in test mode (stopping after %d clients)' % self.test_mode or '',)))
 			self.socket.listen(1)
+			self.on_run()
 			# if other threads called stop(), making it None, don't change it
 			if self.running == False: self.running = True
 			while self.running:
@@ -77,26 +76,22 @@ class Server(Thread):
 					time.sleep(1)
 					self.stop('ending test mode, waiting for %d client to close' % len(self.clients))
 					break
-		# except Exception as e:
-		# 	self.stop(e)
+		except Exception as e:
+			self.stop(e)
 		finally:
 			# close socket here, preventing socket errors by other threads closing it sooner
 			self.socket.close()
 			self.stop()
 
 	def stop(self, reason=None):
-		if not self.running: return
-		# self.for_each_client(self.stop_client, 'server stopping')
-		self.running = None
-		self.log('=', 'stopping%s' % (' (%s)' % str(reason) if reason else ''))
+		if self.running: self.running = None
 
 	def __del__(self): self.stop()
-	def on_stop(self):
-		self.log('-', 'server thread stopped')
-		self.stop()
 
-	def on_message(self, client, message):
-		pass
+	def on_start(self): pass
+	def on_run(self): pass
+	def on_stop(self): pass
+	def on_message(self, client, message): pass
 
 	def lock(self, name):
 		name = 'lock_' + name
@@ -122,8 +117,10 @@ class Server(Thread):
 			# decorated methods send arguments via fargs, normal calls send via args
 			a = args or fargs
 			k = kw or fkw
+			# clients could modify any args
+			called = '%s(%s, %s) =' % (method.__name__, a, k)
 			res = [m(x, *a, **k) for x in self.clients if not match or match(x)]
-			self.log('@', '%s(%s, %s) =' % (method.__name__, a, k), res)
+			self.log('@', called, res)
 			return res
 		return f(self) if self else f
 
@@ -138,9 +135,6 @@ class Server(Thread):
 
 	def remove_client(self, client):
 		if client.running: self._clients.remove(client)
-
-	def stop_client(self, client, reason=None):
-		return client.stop(reason)
 
 	@for_each_client
 	def broadcast(self, client, message):
@@ -260,9 +254,12 @@ class Client(Thread, WebSocketHandler):
 				def log(*x): print x
 		self.log = partial(log, self)
 
+	# BaseHTTPRequestHandler would call this in __init__, ignore it
+	def finish(self): pass
+
 	def run(self):
-		self.log('+', 'connection from %s:%d' % self.client_address)
 		if self.handshake_done: self.running = True
+		self.on_run()
 		try:
 			while self.running and self.read(): pass
 		finally:
@@ -275,26 +272,20 @@ class Client(Thread, WebSocketHandler):
 		if message == '': return self.stop('remote closed')
 		if self.handshake_timeout:
 			if message: self.handshake_timeout = 0
-			elif self.handshake_timeout < time.time(): return self.stop('timeout after handshake')
-		if message == None: return True
-		self.log("<", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
-		# server could stop, on_read method freak out, etc
-		try:
-			self.on_read(message) # call self.server.on_message() if needed
-			return len(message)
-		# ---------------------------------------------
+			elif self.handshake_timeout < time.time():
+				return self.stop('timeout after handshake')
+		if message == None: return True # read timeout, continue reading
+		# continue reading if on_read(), or any message
 		# this can return very uninformative exceptions
-		except Exception as e:
-			return self.stop(repr(e))
+		try: return self.on_read(message) or len(message)
+		except Exception as e: return self.stop(repr(e))
 
 	def send(self, message):
-		self.log(">", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
 		self.on_send(message)
 		with self.server.locked(self.lock_send):
 			return self.send_message(message)
 
-	def finish(self): pass
-
+	# called after run(); on_stop is called as the thread exits
 	def stop(self, reason=''):
 		if self.running == None: return self.running
 		self.running = None
@@ -302,12 +293,13 @@ class Client(Thread, WebSocketHandler):
 		# if reason: self.send('closed_connection\n\n%s' % reason)
 		if not self.rfile.closed: super(Client, self).finish()
 		if self.connection: self.connection.close()
-		self.log('-', 'stopped client%s' % ((' (%s)' % reason) if reason else ''))
 		return self.running
 
-	def on_stop(self): self.log('-', 'client thread stopped')
-	def on_send(self, message): pass
+	def on_start(self): pass
+	def on_run(self): pass
+	def on_stop(self): pass
 	def on_read(self, message): pass
+	def on_send(self, message): pass
 
 
 if __name__ == '__main__':

@@ -10,6 +10,13 @@
 
 	"clients": "",
 
+	// When you save a less file, it is converted by less.js and sent back to
+	// Sublime, which can save it with the same path and a '.css' extension.
+	// This is turned off by default. Set to 1 to save, but don't overwrite
+	// an existing file; set to 2 to allow overwrites.
+
+	"save_parsed_less": 2,
+
 
 	// Defines what types of files should be watched, and what should happen at events.
 
@@ -22,8 +29,8 @@
 
 	"watch_events": {
 		// These are watched by default:
-		"less": ["edit", "open", "close", "save"],
 		"css": ["edit", "open", "close", "save"],
+		"less": ["edit", "open", "close", ["save", "reload_file save_parsed_less"]],
 		"js": ["save"],
 		"html": ["save"],
 		"pyx": ["close", "save"],
@@ -102,7 +109,7 @@
 	"init_server_delay": 1, // start server x sec after startup (0 = only when needed)
 	"logfile": "webloader.log", // path relative to plugin folder
 	"console_log": 0, // should also log to the console
-	"message_prefix": "[Webloader] ", // console message prefix
+	"message_prefix": "Webloader: ", // console message prefix
 	"debug_level": 1,
 	"more": "..."
 }

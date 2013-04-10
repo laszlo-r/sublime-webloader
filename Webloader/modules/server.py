@@ -1,6 +1,6 @@
 # encoding: utf-8
 
-import urllib, urlparse, json, re, itertools
+import os, urllib, urlparse, json, re, itertools
 import websocket
 
 class Message(dict):
@@ -38,6 +38,19 @@ class Server(websocket.Server):
 	def watch_events(self):
 		return self.plugin and self.plugin.watch_events
 
+	def stop(self, reason=''):
+		if reason: self.log('-', 'stopping: %s' % reason)
+		super(Server, self).stop(reason)
+
+	def on_start(self): pass # self.log('+', 'starting server thread')
+
+	def on_run(self):
+		self.log('listening on %s:%d%s' % (self.address + \
+			(self.test_mode and ' in test mode (stopping after %d clients)' % self.test_mode or '',)))
+
+	def on_stop(self):
+		self.log('-', 'server thread stopped')
+
 
 class Client(websocket.Client):
 	"""Stores which files to watch, so there is less traffic when broadcasting events."""
@@ -55,6 +68,7 @@ class Client(websocket.Client):
 		url = urlparse.urlparse(q.get('client', [''])[0]) # pageurl
 
 		# all empty if no client param
+		self.protocol = url.scheme
 		self.host = url.netloc
 		self.path = url.path
 		self.page = url.netloc + url.path
@@ -63,7 +77,31 @@ class Client(websocket.Client):
 		self.localhost = url.netloc in ['localhost', '127.0.0.1', '::1']
 		self.virthost = not self.localhost and self.host.find('.') > -1 and not self.host.replace('.', '').isdigit()
 
-		self.log('+', 'page: %s' % self.page)
+	def on_run(self):
+		self.log('+', 'connection from %s:%d %s://%s' % (self.client_address + (self.protocol, self.page)))
+
+	def on_stop(self):
+		self.log('-', 'client thread stopped')
+
+	def stop(self, reason=''):
+		if reason: self.log('-', 'stopping client: %s' % reason)
+		super(Client, self).stop(reason)
+
+	def on_read(self, message):
+		"""Parses client messages; currently only supports the watch and message commands."""
+
+		self.log("<", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
+		message = Message(message)
+		cmd = message.get('cmd')
+		filename = message.get('filename')
+		content = message.get('content')
+
+		if cmd == 'watch': self.watch_files(content) # replaces existing watchlist
+		elif cmd == 'message': self.server.on_message(self, content)
+		elif cmd == 'parsed_less': self.save_parsed_less(filename, content)
+
+	def on_send(self, message):
+		self.log(">", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
 
 	def watch_files(self, files):
 		if not (files and isinstance(files, list)): return
@@ -82,6 +120,10 @@ class Client(websocket.Client):
 		The method finds longest common folder between the page's url and
 		the resource files, and creates a "common/*.html" -like pattern.
 		"""
+
+		# no plugin, no settings, no patterns
+		events = self.server and self.server.watch_events()
+		if not events or not isinstance(events, dict): return
 
 		# path = urllib.urlencode({'some': 'ő é í ű'})
 		# path = '/git/sublime-webloader/Web loader/ődemo/'
@@ -106,16 +148,20 @@ class Client(websocket.Client):
 			if not res: return sep
 			return sep + sep.join(res[0][1:res[1] + 1]) + sep
 
-		common = longest_common(self.path, self.files)
-		if self.virthost: common = '/' + self.host + common
+		path = urllib.unquote_plus(self.path)
 
-		# no plugin, no settings, no patterns
-		events = self.server and self.server.watch_events()
-		if not events or not isinstance(events, dict): return
+		# in file mode, clients use the same regexp, and send only file paths
+		# so drop the "domain" (first segment) of the page path
+		if self.protocol == 'file': path = path[path.find('/', 1):]
+
+		common = longest_common(path, self.files)
+		if self.virthost: common = '/' + self.host + common
+		elif len(common) < 2: return # don't make too simple patterns (like */*.html)
 
 		extensions = [x.strip() for x in events.keys() \
 			if x and not x in self.noregexp_extensions and isinstance(x, (str, unicode))]
-		if not extensions: return # nothing configured, beside the excluded ones
+		if not extensions: return
+
 		extensions = '|'.join(extensions)
 		fullpath = r'.*(%s)([\w\._/-]+\.(?:%s))$' % (common, extensions)
 		common = '*%s*.(%s)' % (common, extensions)
@@ -153,25 +199,38 @@ class Client(websocket.Client):
 	def send(self, message):
 		sending = super(Client, self).send
 		filename = message.get('filename')
+		changes = {}
 		if filename:
 			matched = self.watches(filename)
 			if not matched: return
-			if matched[0] == '*': # regexp match
-				# don't send the full filename out (privacy/hacking reasons)
-				message.filename = matched
-				message.cmd = 'reload_page'
-			else: message.filename = matched
+			# don't send the full filename, just the matched part (privacy)
+			changes = {'filename': matched}
+			# regexp match for a html or similar (not a linked resource file)
+			if matched[0] == '*': changes['cmd'] = 'reload_page'
+
+		# leave the original message intact, it's passed around
+		if changes:
+			message = Message(message)
+			message.update(changes)
 		sending(message.pack())
 
-	def on_read(self, message):
-		"""Parses client messages; currently only supports the watch and message commands."""
-
-		message = Message(message)
-		cmd = message.get('cmd')
-		content = message.get('content')
-
-		if cmd == 'watch': self.watch_files(content) # replaces existing watchlist
-		elif cmd == 'message': self.server.on_message(self, content)
+	def save_parsed_less(self, filename, parsed):
+		try:
+			save = self.server.plugin.save_parsed_less
+			if not save or not filename.endswith('.less'): return
+			related = next((k for k, v in self.files.iteritems() if k and v == filename), None)
+			self.log('related file:', related)
+			if not related or not os.path.isfile(related): return
+			related = related[0:-4] + 'css'
+			self.log('saving to:', related)
+			if save == 1 and os.path.isfile(related):
+				self.server.plugin.status_message("can't overwrite %s" % os.path.basename(related))
+				self.server.plugin.console_message("%s already exists - allow css overwrites with the 'save_parsed_less' setting" % related)
+				return
+			with open(related, 'w') as f: f.write(parsed);
+			self.server.plugin.status_message("converted and saved to %s" % related)
+		except Exception as e:
+			self.log('while saving parsed less:', e)
 
 
 if __name__ == '__main__':

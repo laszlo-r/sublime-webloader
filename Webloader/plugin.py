@@ -18,6 +18,7 @@ class Webloader(object):
 		self.logfile = os.path.join(sublime.packages_path(), 'Webloader', self.settings.get('logfile', 'webloader.log'))
 		self.console_log = self.settings.get('console_log', 0)
 		self.watch_events = self.settings.get('watch_events', {})
+		self.save_parsed_less = self.settings.get('save_parsed_less', None)
 		self._server = None
 
 		if self.get_server(if_running=1):
@@ -70,6 +71,13 @@ class Webloader(object):
 
 		modules.websocket.Thread(target=runcommand).start()
 
+	def status_message(self, message):
+		f = lambda: sublime.status_message("%s%s" % (self.prefix, message))
+		sublime.set_timeout(f, 50)
+
+	def console_message(self, message):
+		print "%s%s" % (self.prefix, message)
+
 	def message(self, client, message):
 		client_id = client.page
 		message = '%s xsends: %s' % (client_id, message)
@@ -89,14 +97,15 @@ class Webloader(object):
 		elif isinstance(obj, modules.server.Server): ident = 'Server#%-5d' % (obj.ident or 0)
 		elif obj == self: ident = 'Webloader'
 
+		sign = ['| ', ''][len(message) > 1 and isinstance(message[0], str) and len(message[0]) == 1]
 		message = ' '.join(map(str, message))
 		newline = ['', '\n'][message[0] == '\n']
-		sign = ['| ', ''][len(message) > 1 and isinstance(message[0], str) and len(message[0]) == 1]
-		now = time.strftime('%X') if time else ''
+		now = time.strftime('%y%m%d %X') if time else ''
+
+		if obj == self or self.console_log: print self.prefix + (message[1:] if newline else message)
 
 		message = '%s  %-12s %s%s' % (now, ident, sign, message[1:] if newline else message)
 
-		if obj == self or self.console_log: print self.prefix + message
 		if obj == self: message = message.ljust(80, '-') # usually important messages
 		with open(self.logfile, 'a') as f: f.write(newline + message + '\n')
 
