@@ -19,16 +19,20 @@ How to use:
 - open `Webloader/demo/index.html` in a browser (the javascript console shows if it's connected to the plugin)
 - edit `sample.css` with Sublime, and see the changes on the page *as you type*
 - open `index.html` with Sublime, and save it, this should refresh the page
-- if you put this under your webserver (not opened as file:///), `.less` files can be updated live too!
+- if you put this under your webserver, opening it as http://.../index.html, `.less` files can be updated live too!
 
-More options:
--------------
-- to use it in your own project, include a less.js, a prototype.js, and the webloader.js (works with the included versions)
+Used in your projects:
+----------------------
+- include a less.js, a prototype.js, and the webloader.js (works with the included versions)
 - be sure to put webloader.js __after__ any link or script tags you want to keep updated!
-- if the web page sees your machine on a different ip than localhost, include that ip:
-  - `<script src='webloader.js?server=192.168.0.100:9000'></script>`
-- customize settings in the Packages/Webloader/Webloader.sublime-settings file
-  - not every setting is supported yet, but this should be mentioned in the comments
+- if the web page is not on your machine, or sees you as a different ip than localhost/127.0.0.1/::1
+  - include the script like this: `<script src='webloader.js?server=192.168.0.100:9000'></script>`
+  - and you may have to enable this port (you can change it) in your firewall
+- check out the settings in the Packages/Webloader/Webloader.sublime-settings file:
+  - see the 'clients' setting if you do not trust your lan, or opened the above port
+  - see the 'watch_events' setting if you want to add or remove file types
+  - see the 'sites' setting if you use virthosts, symlink your directories to your docroot, or similar
+  - not everything is supported fully yet, but this should be mentioned in the comments
 - you can run javascript on the page directly from Sublime with ctrl-shift-j
 - you can send commands to the server with ctrl-shift-c (currently only supports stop/restart/start)
 
