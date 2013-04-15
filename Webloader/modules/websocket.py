@@ -91,6 +91,7 @@ class Server(Thread):
 	def on_start(self): pass
 	def on_run(self): pass
 	def on_stop(self): pass
+	def on_connection(self, client): pass
 	def on_message(self, client, message): pass
 
 	def lock(self, name):
@@ -129,6 +130,7 @@ class Server(Thread):
 		return [x for x in self._clients if x and x.running and x.is_alive()]
 
 	def add_client(self, addr):
+		if self.on_connection(addr): return
 		client = self.handler_class(addr[0], addr[1], server=self)
 		self._clients.append(client)
 		client.start()
@@ -288,8 +290,8 @@ class Client(Thread, WebSocketHandler):
 	# called after run(); on_stop is called as the thread exits
 	def stop(self, reason=''):
 		if self.running == None: return self.running
-		self.running = None
 		self.server.remove_client(self)
+		self.running = None
 		# if reason: self.send('closed_connection\n\n%s' % reason)
 		if not self.rfile.closed: super(Client, self).finish()
 		if self.connection: self.connection.close()

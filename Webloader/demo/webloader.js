@@ -159,7 +159,11 @@ function WebLoader() {
 		})
 
 		this.add_command('run', function(cmd, file, content) {
-			if (content && content.length) console.log(eval(content))
+			if (content && content.length) {
+				var result = eval(content);
+				console.log(result);
+				this.send_command('js_results', content, this.inspect(result));
+			}
 		})
 	}
 
@@ -383,6 +387,22 @@ function WebLoader() {
 
 		// for non-console logging
 		// return this.somemethod(this.format.apply(this, args));
+	}
+
+	this.inspect = function(x, level) {
+		if (level === undefined) level = 0;
+		var ref = this, res = [], type = typeof x, padding = (new Array(level * 2 + 3)).join(' ');
+		if (type === 'function') return ('' + x).split(')', 1)[0].strip().replace(/\s+/g, ' ') + ')';
+		if (type === 'string') return '"' + x + '"';
+		if (type !== 'object' || level > 1 || x === null) return '' + x;
+		var prop = function(key) { return padding + key + ': ' + ref.inspect(x[key], level + 1); };
+		if (x.hasOwnProperty('length'))
+			for (var i = 0; i < x.length; i++) res.push(prop(i));
+		else
+			for (var k in x)
+				if (x.hasOwnProperty(k)) res.push(prop(k));
+		if (!res.length) return (x.hasOwnProperty('length') ? '[]' : '{}');
+		return '\n' + res.join('\n');
 	}
 
 	// for non-console messages, something like this could be used in the same format as console.log

@@ -1,5 +1,5 @@
 import sublime, sublime_plugin
-import os, time, contextlib
+import os, time, contextlib, re
 import modules
 
 
@@ -12,13 +12,22 @@ def ignored(*exceptions):
 class Webloader(object):
 	def __init__(self):
 		self.settings = sublime.load_settings("Webloader.sublime-settings")
+
 		address = self.settings.get('server', 'localhost:9000').split(':')
 		self.server_address = (address[0], int(address[1]))
+
+		ip_pattern = lambda x: re.compile(x.replace('*', '[0-9]+')) if '*' in x else None
+		clients = str(self.settings.get('clients') or '').split()
+		self.client_ips = {} if not clients or '*' in clients else dict((k, ip_pattern(k)) for k in clients if k)
+
+		self.watch_events = self.settings.get('watch_events', {})
+		self.sites = self.settings.get('sites', {})
+
+		self.save_parsed_less = self.settings.get('save_parsed_less', None)
 		self.prefix = self.settings.get('message_prefix', '[Webloader] ')
 		self.logfile = os.path.join(sublime.packages_path(), 'Webloader', self.settings.get('logfile', 'webloader.log'))
 		self.console_log = self.settings.get('console_log', 0)
-		self.watch_events = self.settings.get('watch_events', {})
-		self.save_parsed_less = self.settings.get('save_parsed_less', None)
+
 		self._server = None
 
 		if self.get_server(if_running=1):
@@ -48,8 +57,8 @@ class Webloader(object):
 			self.log('invalid server address %s (check plugin settings)' % str(self.server_address))
 			raise Exception('invalid server address %s' % str(self.server_address))
 
-		self._server = sublime.webloader_server = \
-			modules.server.Server(self.server_address, plugin=self, log=self.log, debug=100).start()
+		self._server = sublime.webloader_server = modules.server.Server(
+			self.server_address, plugin=self, client_ips=self.client_ips.copy(), log=self.log, debug=100).start()
 		self.log('\nserver started on %s:%d ' % self._server.address)
 		return self._server
 
@@ -57,7 +66,7 @@ class Webloader(object):
 	def server(self):
 		return self.get_server()
 
-	def command(self, cmd, filename='', content=''):
+	def command(self, cmd, filename='', content='', client=None):
 		# access self._server directly so as not to cause an automatic restart
 		if cmd == 'stop': return self._server and self._server.stop()
 		elif cmd == 'restart': return self._server and self._server.stop() or sublime.set_timeout(self.get_server, 1000)
@@ -66,7 +75,7 @@ class Webloader(object):
 		if self.server.running is None: return # not running, or starting
 
 		def runcommand():
-			try: self.server.command(cmd, filename, content)
+			try: self.server.command(cmd, filename, content, client)
 			except Exception as e: self.log('Could not send command:', e)
 
 		modules.websocket.Thread(target=runcommand).start()
@@ -75,12 +84,15 @@ class Webloader(object):
 		f = lambda: sublime.status_message("%s%s" % (self.prefix, message))
 		sublime.set_timeout(f, 50)
 
-	def console_message(self, message):
-		print "%s%s" % (self.prefix, message)
+	def console_message(self, message, open=0):
+		def f():
+			if open: sublime.active_window().run_command('show_panel', {'panel': 'console', 'xtoggle': True})
+			print "%s%s" % (self.prefix, message)
+		sublime.set_timeout(f, 50)
 
 	def message(self, client, message):
 		client_id = client.page
-		message = '%s xsends: %s' % (client_id, message)
+		message = '%s sends: %s' % (client_id, message)
 		self.log(message)
 
 	# logging:
@@ -202,7 +214,7 @@ class WebloaderEvents(sublime_plugin.EventListener):
 	def on_close(self, view): self.file_event(view, 'close', 'closed')
 
 	def on_modified(self, view):
-		if not (self.focused and self.active and self.live_update): return
+		if not (self.focused and self.active and self.live_update and view.file_name()): return
 
 		# TODO:
 		# 1. validate the currently edited "key:value;" against known keys, skip if unknown
@@ -218,32 +230,62 @@ class WebloaderEvents(sublime_plugin.EventListener):
 
 
 class WebloaderJsCommand(sublime_plugin.WindowCommand):
-# class WebloaderJsCommand(sublime_plugin.ApplicationCommand):
-# class WebloaderJsCommand(sublime_plugin.TextCommand):
 	def __init__(self, *args, **kw):
 		super(WebloaderJsCommand, self).__init__(*args, **kw)
+		self.clients = []
+		self.client = None
+		self.open = 0
+		self.prev = "console.log('Hey!')"
 
-	def run(self, **args):
-		# look at the current file, find the attached client, and run the js there
-		# if more clients, show_quick_panel with clients, user selects a target (store it)
-		#   run commands on that client, until user cancels the dialog, reset stored client
+	def run(self, run_prev=None, *args, **kw):
+		if self.client not in webloader.server.clients: return self.select_client()
+		self.show_panel()
 
-		# quick_panel example
-		# def on_done(index):
-		# 	sublime.status_message('Selected item %d' % index)
-		# items = ['run on item1', ['item2', 'item2 line 2']]
-		# self.window.show_quick_panel(items, on_done)
+	def show_panel(self):
+		if self.open: return self.select_client()
+		self.open = 1
+		self.window.show_input_panel('Run javascript on %s:' % self.client_id(), self.prev, self.on_done, None, self.on_cancel)
 
-		if not hasattr(self, 'prev'): self.prev = "alert('Hey!')"
-		self.window.show_input_panel('Run javascript', self.prev, self.on_done, None, None)
-
-		# self.window.run_command('show_panel', {'panel': 'console', 'xtoggle': True})
+	def on_cancel(self):
+		self.open = 0
 
 	def on_done(self, js):
+		self.open = 0
+		js = js.strip()
+		if not self.client or not js: return
 		self.prev = js
+		webloader.command('run', content=js, client=self.client)
 		sublime.status_message("Running js: '%s'" % js)
-		self.window.show_input_panel('Run javascript', self.prev, self.on_done, None, None)
-		webloader.command('run', content=js)
+		sublime.set_timeout(self.run, 50)
+
+	def client_id(self, client=None):
+		if not client: client = self.client
+		return '/'.join(client.page.rsplit('/', 3)[1:]) if client else '?'
+
+	def select_client(self):
+		watching = None
+		clients = webloader.server.clients
+
+		if len(clients) > 1:
+			view = self.window.active_view()
+			filename = (view.file_name() or '').replace(os.path.sep, '/')
+			watching = webloader.server.clients_watching(filename)
+			if watching: clients = watching
+
+		if len(clients) > 1:
+			def setclient(index):
+				if index < 1: return
+				self.client = self.clients[index - 1]
+				sublime.set_timeout(self.run, 50)
+
+			header = ['Select a page to run javascript on (up/down/enter or mouse):']
+			if watching: header.append("These all watch this '%s'" % os.path.basename(filename))
+			items = [header] + [["Run on %s" % self.client_id(x), x.page] for x in clients]
+			self.clients = clients
+			self.open = 0
+			return self.window.show_quick_panel(items, setclient)
+
+		if clients: self.client = clients[0]
 
 
 class WebloaderServerCommand(sublime_plugin.WindowCommand):
