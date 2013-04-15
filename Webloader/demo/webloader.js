@@ -28,7 +28,7 @@ function WebLoader() {
 		// this.test_regexp(this.file_pattern, 5); // pattern, expected number of pieces
 
 		var get_file_info = function(a) { return (a = a.href || a.src) && (a = a.match(this)) && a.slice(1); },
-			files = document.head.childElements().map(get_file_info, this.file_pattern).filter(this.self);
+			files = document.head.childElements().map(get_file_info, this.file_pattern).filter(this.is_true);
 
 		this.check_server_params(files);
 
@@ -184,10 +184,11 @@ function WebLoader() {
 				var ref = this, style = item.nextElementSibling, url = item.href;
 
 				// use the less-generated style element for updating
-				if (!style.id || (!style.id.startsWith('less:') && !style.id.startsWith('less-webloader:')))
-					return this.debug > 1 && this.log('when updating %s, found this style:', file, style);
+				if (style.id && (style.id.startsWith('less:') || style.id.startsWith('less-webloader:')))
+					this.remove_custom_styles(file);
+				else if (this.debug > 1)
+					this.log('when updating %s, found this style:', file, style);
 
-				this.remove_custom_styles(file);
 				if (!this.is_less(item)) return;
 
 				new Ajax.Request(url, {
@@ -195,9 +196,8 @@ function WebLoader() {
 						ref.log('could not refresh %s!', url);
 					},
 					onSuccess: function(response) {
-						if (ref.debug > 1)
-							ref.log('ajax: updating %s with %s', url, response.responseText)
-						var parsed = ref.less_parse(response.responseText);
+						if (ref.debug > 1) ref.log('ajax: updating %s with', url, response);
+						var parsed = ref.less_parse(response.responseText, item);
 						style.textContent = parsed;
 						if (cmd && cmd[1] === 'save_parsed_less')
 							ref.send_command('parsed_less', ref.file_handle(file), parsed);
@@ -225,6 +225,13 @@ function WebLoader() {
 
 
 	/// less and css-related stuff
+
+	this.relative_css_path = function(item) {
+		var page = document.baseURI, path = item.href, arr = [page.split('/'), path.split('/')];
+		for (var i = 0; i < arr[0].length - 1; i++)
+			if (arr[0][i] !== arr[1][i]) break;
+		return (new Array(arr[0].length - i)).join('../') + (arr[1].slice(i, -1).concat([''])).join('/');
+	}
 
 	this.is_less = function(item) {
 		// less files should have a .less extension and stylesheet/less declared
@@ -280,7 +287,7 @@ function WebLoader() {
 		this.remove_custom_styles(handle, id);
 
 		id = this.custom_less_handle(handle, id);
-		styles = this.less_parse(styles);
+		styles = this.less_parse(styles, file);
 
 		if (this.debug > 1)
 			this.log('updating "%s", style id "%s", with:\n%s', handle.slice(handle.lastIndexOf('/') + 1), id, styles)
@@ -308,10 +315,10 @@ function WebLoader() {
 		}
 	}
 
-	this.less_parse = function(styles) {
+	this.less_parse = function(styles, fileelem) {
 		if (!less || !less.Parser) return this.log('no less object found, is a less.js included?');
-		var err, result
-		(new less.Parser).parse(styles, function(err, tree) { result = [err, tree]; });
+		var err, result, parser = new less.Parser({ rootpath: this.relative_css_path(fileelem) });
+		parser.parse(styles, function(err, tree) { result = [err, tree]; });
 		return (err = result[0]) ?
 			(this.debug > 1 && this.log('less parser: ' + err.message + ' (column ' + err.index + ')')) :
 			result[1].toCSS();
@@ -417,7 +424,7 @@ function WebLoader() {
 		}, '');
 	}
 
-	this.self = function(x) { return x; }
+	this.is_true = function(x) { return x; }
 
 	this.test_regexp = function(file_pattern, expected) {
 		var protocols = [

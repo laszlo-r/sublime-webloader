@@ -1,9 +1,9 @@
 
 BEFORE PUSHING:
 ---------------
-- verify license
-- remove debug messages or flags
-- update website, remove php
++ verify license
++ remove debug messages or flags
++ update website, remove php
 - update linkedin: activity + projects, remove php
 
 TODO:
@@ -16,6 +16,7 @@ TODO:
 + implement sites setting; work with the examples listed in the settings file
 + when changing settings, plugin should notice, and clients should update their patterns; implemented for important settings
 + webloader.js runs on dom:loaded, can be put anywhere on the page
++ converting less: less parser now gets a rootpath (prefixes url()), which is the relative path between the page and the less file
 - update readme
 - test utf8 characters in urls and paths, test linux paths (currently first bit removed with paths like file:///C:/)
 - test various sites settings, virthosts, symlinked paths, etc

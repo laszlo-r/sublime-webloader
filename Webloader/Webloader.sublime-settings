@@ -13,6 +13,7 @@
 	// Sublime, which can save it with the same path and a '.css' extension.
 	// This is turned off by default. Set to 1 to save, but don't overwrite
 	// an existing file; set to 2 to allow overwrites.
+	// NOTE: You need an open webpage with webloader.js, using that less file.
 
 	"save_parsed_less": 0,
 
