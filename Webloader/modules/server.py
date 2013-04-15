@@ -140,11 +140,10 @@ class Client(websocket.Client):
 		events = self.server and self.server.watch_events()
 		if not events or not isinstance(events, dict): return
 
-		# path = urllib.urlencode({'some': 'ő é í ű'})
-		# path = '/git/sublime-webloader/Web loader/ődemo/'
-		# path = '/git/sublime-webloader/Web%20loader/%C5%91demo/'
-		# path = '/git/sublime-webloader/Webloader/demo/some deeper/page'
-		# path = urllib.unquote_plus(path)
+		sites = self.server.plugin.sites
+		if sites:
+			sites = [(v, re.compile(k + '(.+)')) for k, v in sites.iteritems() if k]
+			self.patterns.update(dict(sites))
 
 		# TODO: refactor/simplify
 		def longest_common(path, files, sep='/'):
@@ -179,9 +178,8 @@ class Client(websocket.Client):
 		if not extensions: return
 
 		extensions = '|'.join(extensions)
-		fullpath = r'.*(%s)([\w\._/-]+\.(?:%s))$' % (common, extensions)
-		common = '*%s*.(%s)' % (common, extensions)
-		self.patterns[common] = re.compile(fullpath)
+		fullpath = r'.*%s([\w\._/-]+\.(?:%s))$' % (common, extensions)
+		self.patterns['/' + self.host + common] = re.compile(fullpath)
 
 	def file_matches(self, pattern, path):
 		"""Returns whether path matches pattern."""
@@ -189,16 +187,16 @@ class Client(websocket.Client):
 		# path is a full filepath + filename (always with '/' separators)
 
 		# pattern is a tuple of either:    # meaning and return values:
-		# (/nonmatching/file.html, False)  # already checked, false
+		# (/nonmatching/file.html, False)  # already checked, return false
 		# (/www/x/a/b.html, /a/b.html)     # already checked match, pattern[1]
-		# (/a/b.html, None)                # return url if path.endswith(url)
-		# (*/path/*.html, regexpobj)       # if path matches, return group(1)
+		# (/a/b.html, None)                # if path.endswith(url), return url
+		# (*/path/*.html, regexpobj)       # if path matches, patt + group(1)
 
 		if not pattern or not isinstance(pattern, tuple) or len(pattern) != 2: return False
 		patt, value = pattern
 		if value is False or patt == path: return value
 		if value is None: return path.endswith(patt) and patt
-		try: return '*%s%s' % (value.match(path).group(1), value.match(path).group(2))
+		try: return '*%s%s' % (patt, value.match(path).group(1))
 		except: pass
 		return False
 

@@ -20,7 +20,7 @@ class Webloader(object):
 		clients = str(self.settings.get('clients') or '').split()
 		self.client_ips = {} if not clients or '*' in clients else dict((k, ip_pattern(k)) for k in clients if k)
 
-		self.watch_events = self.settings.get('watch_events', {})
+		self.watch_events = dict((k, v) for k, v in self.settings.get('watch_events', {}).iteritems() if k and v)
 		self.sites = self.settings.get('sites', {})
 
 		self.save_parsed_less = self.settings.get('save_parsed_less', None)
