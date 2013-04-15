@@ -12,7 +12,17 @@ def ignored(*exceptions):
 class Webloader(object):
 	def __init__(self):
 		self.settings = sublime.load_settings("Webloader.sublime-settings")
+		watch_settings = ['server', 'clients', 'save_parsed_less', 'watch_events', 'sites']
+		[self.settings.add_on_change(x, self.on_settings_change) for x in watch_settings]
 
+		self.reload_settings()
+		self._server = None
+
+		if self.get_server(if_running=1):
+			return self.log('\nstarted -- server already running on %s:%d ' % self._server.address)
+		self.check_server()
+
+	def reload_settings(self):
 		address = self.settings.get('server', 'localhost:9000').split(':')
 		self.server_address = (address[0], int(address[1]))
 
@@ -21,18 +31,21 @@ class Webloader(object):
 		self.client_ips = {} if not clients or '*' in clients else dict((k, ip_pattern(k)) for k in clients if k)
 
 		self.watch_events = dict((k, v) for k, v in self.settings.get('watch_events', {}).iteritems() if k and v)
-		self.sites = self.settings.get('sites', {})
+		self.sites = dict((k, v) for k, v in self.settings.get('sites', {}).iteritems() if k and v)
 
 		self.save_parsed_less = self.settings.get('save_parsed_less', None)
 		self.prefix = self.settings.get('message_prefix', '[Webloader] ')
 		self.logfile = os.path.join(sublime.packages_path(), 'Webloader', self.settings.get('logfile', 'webloader.log'))
 		self.console_log = self.settings.get('console_log', 0)
 
-		self._server = None
+	def on_settings_change(self):
+		self.reload_settings()
 
-		if self.get_server(if_running=1):
-			return self.log('\nstarted -- server already running on %s:%d ' % self._server.address)
-		self.check_server()
+		if self.server_address[1] != self._server.address[1] or self.client_ips != self._server.client_ips:
+			self._server = None
+
+		if hasattr(sublime, 'webloader_events'): sublime.webloader_events.update_settings()
+		[client.update_patterns(reset=1) for client in self.server.clients]
 
 	def check_server(self):
 		"""Attempts to get the server after settings.init_server_delay seconds."""
@@ -148,8 +161,10 @@ class WebloaderEvents(sublime_plugin.EventListener):
 			'close': 'reload_file',
 			'edit': 'update',
 		}
+		self.update_settings()
 
-		events = webloader.settings.get('watch_events', {})
+	def update_settings(self):
+		events = webloader.watch_events
 		self.watch_events = dict([ext, dict(map(self.parse_event, ev))] for ext, ev in events.iteritems())
 		sublime.webloader_events = self
 

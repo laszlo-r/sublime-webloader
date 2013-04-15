@@ -1,7 +1,6 @@
 {
-	// The host and port the server listens to.
-	// If you change this, update your script tag: 'webloader.js?server=host:port'
-	// Then restart Sublime (or ctrl-shift-c and 'restart'), and reload your page.
+	// The host and port the server listens to. If you change this, update
+	// your script tag: 'webloader.js?server=host:port' and reload the page.
 
 	"server": "localhost:9000",
 
@@ -15,7 +14,7 @@
 	// This is turned off by default. Set to 1 to save, but don't overwrite
 	// an existing file; set to 2 to allow overwrites.
 
-	"save_parsed_less": 2,
+	"save_parsed_less": 0,
 
 
 	// Defines what types of files should be watched, and what should happen at events.
@@ -58,12 +57,16 @@
 
 	// The plugin will try to figure out this, and reload pages when files
 	// in the project dir are saved. Try it. If saving didn't reload anything,
-	// or your dev environment is not typical, see the settings below.
+	// or your dev environment is not typical, use one of the settings below.
 
 	"sites": {
-		// Files saved under the project folder should refresh these pages:
+		// If files saved under the project folder should refresh these pages:
 		// "/var/www/folder/project/": "localhost/differentproject/",
 		// "c:/xampp/htdocs/project/": "localhost/differentproject/",
+
+		// You can drop the drive letter, or set partial paths:
+		// "c:/xampp/htdocs/project/": "localhost/differentproject/",
+		//         "/htdocs/project/": "localhost/differentproject/",
 
 		// A virthost folder maps to a different url:
 		// "/var/www/projectname/": "projectname.virthosts.local/",
@@ -78,7 +81,7 @@
 
 
 
-		// Some info on how the default matching works:
+		// Some info on how the default auto-matching works:
 
 		// If the page includes at least one js or css (static linked files)
 		// from somewhere under the project folder, the root page is guessed.
@@ -97,6 +100,7 @@
 		//       virthost.com/                (guessed project root url)
 		//     */virthost.com/*.html          (created pattern (simplified))
 		//  /www/virthost.com/tpl/some.html   (a file matching this pattern)
+
 
 
 		// Because you will inevitably forget this.

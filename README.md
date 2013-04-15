@@ -15,26 +15,29 @@ How to use:
   - windows: `youruserfolder\AppData\Roaming\Sublime Text 2\Packages`
   - os x: `~/Library/Application Support/Sublime Text 2`
   - linux: `~/.config/sublime-text-2`
-  - restart Sublime (the console should show a `[Webloader]` message if the plugin loaded)
-- open `Webloader/demo/index.html` in a browser (the javascript console shows if it's connected to the plugin)
+  - restart Sublime (the console should show a `Webloader:` message if the plugin loaded)
+- open `Webloader/demo/index.html` in a browser (the javascript console should tell if it started watching files)
 - edit `sample.css` with Sublime, and see the changes on the page *as you type*
-- open `index.html` with Sublime, and save it, this should refresh the page
-- if you put this under your webserver, opening it as http://.../index.html, `.less` files can be updated live too!
+- open `index.html` with Sublime, add some text, save it, this should refresh the page
+- if you put this under your webserver (opened as `http://.../index.html`), `.less` files can be updated live too!
 
 Used in your projects:
 ----------------------
-- include a less.js, a prototype.js, and the webloader.js (works with the included versions)
-- be sure to put webloader.js __after__ any link or script tags you want to keep updated!
-- if the web page is not on your machine, or sees you as a different ip than localhost/127.0.0.1/::1
-  - include the script like this: `<script src='webloader.js?server=192.168.0.100:9000'></script>`
-  - and you may have to enable this port (you can change it) in your firewall
-- check out the settings in the Packages/Webloader/Webloader.sublime-settings file:
-  - see the 'clients' setting if you do not trust your lan, or opened the above port
-  - see the 'watch_events' setting if you want to add or remove file types
-  - see the 'sites' setting if you use virthosts, symlink your directories to your docroot, or similar
-  - not everything is supported fully yet, but this should be mentioned in the comments
-- you can run javascript on the page directly from Sublime with ctrl-shift-j
-- you can send commands to the server with ctrl-shift-c (currently only supports stop/restart/start)
+- __in one line__: install the plugin, and include the less/prototype/webloader scripts on your page (in this order)
+- webloader.js depends on prototype, and has only been tested with this version of less.js and prototype.js
+- non-localhost websites:
+  - if the page is not on your machine, or sees you as a different ip than localhost/127.0.0.1/::1
+  - define your ip: `<script src='webloader.js?server=192.168.0.100:9000'></script>`
+  - and you may have to enable this port in your firewall
+- check out the settings in the `Packages/Webloader/Webloader.sublime-settings` file:
+  - server: if you want to change the above port
+  - save\_parsed\_less: if you want to enable converting `.less` to `.css` on save
+  - clients: if you do not trust your lan, or opened the above port to the wide internet
+  - watch_events: if you want to add or remove file types
+  - sites: if you use virthosts, symlink directories to your docroot, or similar
+  - some thing may not be fully supported, see the settings file's comments
+- you can run javascript on a page directly from Sublime with `ctrl-shift-j`
+- you can send commands to the server with `ctrl-shift-c` (currently only supports stop/restart/start)
 
 Future plans:
 -------------
@@ -47,7 +50,7 @@ License:
 --------
 - Contact: <http://rozsahegyi.info>
 - License: [Creative Commons Attribution-NonCommercial-NoDerivs 3.0 Unported License][license].
-- Summary: free to download/share/use, you have to credit me, and you can't sell it or build upon it.
+- Summary: free to download/share/use, but you have to credit me, and you can't sell, alter, or bundle this.
 - ![Creative Commons License][image]
 
 Credits:

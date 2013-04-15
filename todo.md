@@ -13,9 +13,12 @@ TODO:
 + implement save_parsed_less: find the less file in client.files; save the parsed content beside it as .css; has to be enabled in settings!
 + complete js command: quick panel if multiple clients, send to selected (or current) client
 + server command: start/stop/restart; also sends 'cmd file multi line content' to all clients
-+ implement sites setting
++ implement sites setting; work with the examples listed in the settings file
++ when changing settings, plugin should notice, and clients should update their patterns; implemented for important settings
++ webloader.js runs on dom:loaded, can be put anywhere on the page
 - update readme
-- test utf8 characters in urls and paths
+- test utf8 characters in urls and paths, test linux paths (currently first bit removed with paths like file:///C:/)
+- test various sites settings, virthosts, symlinked paths, etc
 - hotkey for page reload for the selected/single client; definitely, page reloading on every save may be annoying and slow for some
 - add menu items for options and commands
 - currently clients can call self.server, which could have exited and been deleted meanwhile
@@ -25,11 +28,6 @@ TODO:
   - multiple selections: with less you probably factor out frequently used values into variables, so not a priority
   - a full refresh would be is necessary, which is slow with large files + typing; could timeout for 0.5-1sec when multiple selections
 - lesscss is apache 2 licensed (free, include all credits), prototype is MIT (free)
-
-# f, ff = 'C:/Users/rl/AppData/Roaming/Sublime Text 2/Packages/Webloader/modules/server.py', 'D:/work/git/sublime-webloader/Webloader/demo/index.html'
-# sublime.webloader_server.clients[0].watches(f), sublime.webloader_server.clients[0].watches(ff)
-# "C:/Users/rl/AppData/Roaming/Sublime Text 2/": "localhost/git/sublime-webloader/",
-
 
 Matching
 --------

@@ -86,6 +86,7 @@ class Client(websocket.Client):
 		self.host = url.netloc
 		self.path = url.path
 		self.page = url.netloc + url.path
+		if self.protocol == 'file': self.page = self.page[self.page.find('/', 1):]
 
 		# assume virthost if not localhost, the domain has a dot, and is not an ip
 		self.localhost = url.netloc in ['localhost', '127.0.0.1', '::1']
@@ -124,7 +125,7 @@ class Client(websocket.Client):
 		self.update_patterns()
 
 	# make tests
-	def update_patterns(self):
+	def update_patterns(self, reset=0):
 		"""
 		With a new file list, create a pattern for matching certain files.
 
@@ -140,9 +141,21 @@ class Client(websocket.Client):
 		events = self.server and self.server.watch_events()
 		if not events or not isinstance(events, dict): return
 
+		if reset:
+			self.files = dict(f for f in self.files.iteritems() if f[1] is None)
+			self.patterns = {}
+
+		# end patterns with watched file extensions, except js/css/less
+		extensions = [x.strip() for x in events.keys() \
+			if x and not x in self.noregexp_extensions and isinstance(x, (str, unicode))]
+		if not extensions: return
+		filepaths = r'([\w\._/-]+\.(?:%s))$' % '|'.join(extensions)
+
 		sites = self.server.plugin.sites
 		if sites:
-			sites = [(v, re.compile(k + '(.+)')) for k, v in sites.iteritems() if k]
+			# store patterns by 'url folder', so multiple folders can point to
+			# the same url, and we can still retrieve the url (by first space)
+			sites = ((v + ' ' + k, re.compile('.*%s(.+)' % k)) for k, v in sites.iteritems() if k)
 			self.patterns.update(dict(sites))
 
 		# TODO: refactor/simplify
@@ -170,33 +183,29 @@ class Client(websocket.Client):
 
 		common = longest_common(path, self.files)
 		if self.virthost: common = '/' + self.host + common
-		elif len(common) < 2: return # don't make too simple patterns (like */*.html)
 		self.common = common
+		if len(common) < 2: return # don't make too simple patterns (like */*.html)
 
-		extensions = [x.strip() for x in events.keys() \
-			if x and not x in self.noregexp_extensions and isinstance(x, (str, unicode))]
-		if not extensions: return
-
-		extensions = '|'.join(extensions)
-		fullpath = r'.*%s([\w\._/-]+\.(?:%s))$' % (common, extensions)
-		self.patterns['/' + self.host + common] = re.compile(fullpath)
+		# don't replace user-defined stuff
+		key = self.host + common
+		if key not in self.patterns: self.patterns[key] = re.compile('.*' + common + filepaths)
 
 	def file_matches(self, pattern, path):
 		"""Returns whether path matches pattern."""
 
 		# path is a full filepath + filename (always with '/' separators)
 
-		# pattern is a tuple of either:    # meaning and return values:
-		# (/nonmatching/file.html, False)  # already checked, return false
-		# (/www/x/a/b.html, /a/b.html)     # already checked match, pattern[1]
-		# (/a/b.html, None)                # if path.endswith(url), return url
-		# (*/path/*.html, regexpobj)       # if path matches, patt + group(1)
+		# pattern is a tuple of either:   # meaning and return values:
+		# (/nonmatching/file.html, False) # already checked, return false
+		# (/www/x/a/b.html, /a/b.html)    # already checked match, pattern[1]
+		# (/a/b.html, None)               # if path.endswith(url), return url
+		# (*/path/*.html dirpath, regexp) # if path matches, (url part, match)
 
 		if not pattern or not isinstance(pattern, tuple) or len(pattern) != 2: return False
 		patt, value = pattern
 		if value is False or patt == path: return value
-		if value is None: return path.endswith(patt) and patt
-		try: return '*%s%s' % (patt, value.match(path).group(1))
+		if value is None: return path.endswith(urllib.unquote_plus(patt)) and patt
+		try: return (patt.split(' ', 1)[0], value.match(path).group(1))
 		except: pass
 		return False
 
@@ -217,10 +226,13 @@ class Client(websocket.Client):
 		if filename:
 			matched = self.watches(filename)
 			if not matched: return
+			if isinstance(matched, tuple):
+				# a regexp match should fit the domain+basepath of the client
+				if not self.page.startswith(matched[0]): return
+				matched = '...'.join(matched)
+				changes['cmd'] = 'reload_page'
 			# don't send the full filename, just the matched part (privacy)
-			changes = {'filename': matched}
-			# regexp match for a html or similar (not a linked resource file)
-			if matched[0] == '*': changes['cmd'] = 'reload_page'
+			changes['filename'] = matched
 
 		# leave the original message intact, it's passed around
 		if changes:

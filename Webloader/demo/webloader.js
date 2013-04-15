@@ -103,7 +103,7 @@ function WebLoader() {
 		var item = file && typeof file === 'string' ? this.file_element(file) : file;
 		if (typeof cmd === 'string') cmd = [cmd];
 
-		if (!this.commands[cmd[0]] || this.debug)
+		if (!this.commands[cmd[0]] || this.debug > 1)
 			this.log((!this.commands[cmd[0]] ? 'unknown ' : '') +
 				'command "%s" (%s)\n-- file: "%s"\n-- content (%s):\n%s-- message:',
 				cmd.join(' '), $H(message).keys().join(', '), file, content.length,
@@ -179,15 +179,16 @@ function WebLoader() {
 				}
 			},
 			less: function(item, file, cmd) {
-				if (!this.is_less(item)) return;
+				if (!item || item.type !== 'text/css') return;
 
-				var ref = this, style = item.nextSibling, url = item.href;
+				var ref = this, style = item.nextElementSibling, url = item.href;
 
 				// use the less-generated style element for updating
 				if (!style.id || (!style.id.startsWith('less:') && !style.id.startsWith('less-webloader:')))
-					return this.log('when updating %s, found this style:', file, style);
+					return this.debug > 1 && this.log('when updating %s, found this style:', file, style);
 
 				this.remove_custom_styles(file);
+				if (!this.is_less(item)) return;
 
 				new Ajax.Request(url, {
 					onFailure: function(response) {
@@ -312,7 +313,7 @@ function WebLoader() {
 		var err, result
 		(new less.Parser).parse(styles, function(err, tree) { result = [err, tree]; });
 		return (err = result[0]) ?
-			this.log('less parser: ' + err.message + ' (column ' + err.index + ')') :
+			(this.debug > 1 && this.log('less parser: ' + err.message + ' (column ' + err.index + ')')) :
 			result[1].toCSS();
 	}
 
@@ -332,7 +333,7 @@ function WebLoader() {
 				this.request_watching();
 			},
 			function onclose() {
-				if (!this.server.re_min_interval) return this.log('connection closed, and reconnect is turned off.');
+				if (!this.server.re_min_interval) return this.log('connection closed, and reconnecting is turned off.');
 				if (!this.server.re_timer) this.log('connection closed, running reconnect attempts...');
 				this.reconnect(0);
 				this.socket = null;
@@ -476,7 +477,9 @@ function WebLoader() {
 		return !errors;
 	}
 
-	this.init();
+	var ref = this, init = function() { ref.init.apply(ref); };
+	document.loaded ? setTimeout(init, 200) : document.observe("dom:loaded", init);
+
 	return this;
 
 }
