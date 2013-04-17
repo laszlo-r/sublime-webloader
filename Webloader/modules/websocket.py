@@ -1,17 +1,10 @@
-
 import threading, time, socket
 import struct
-import BaseHTTPServer
+import BaseHTTPServer, SocketServer
 from functools import partial
 from contextlib import contextmanager
 from base64 import b64encode
 from hashlib import sha1
-
-# ---------------------------------------------------------
-import select
-# ---------------------------------------------------------
-# should follow the same api as the SocketServer.BaseServer
-# ---------------------------------------------------------
 
 
 @contextmanager
@@ -19,80 +12,33 @@ def ignored(*exceptions):
 	try: yield
 	except exceptions: pass
 
-
-class Thread(threading.Thread):
-	"""Thread with more callbacks, which are either a callable or a defined method (param takes precedence)"""
-	def __init__(self, on_start=None, on_stop=None, **kw):
-		super(Thread, self).__init__(**kw)
-		if on_start and hasattr(on_start, '__call__'): self.on_start = on_start
-		if on_stop and hasattr(on_stop, '__call__'): self.on_stop = on_stop
-
-	def start(self):
-		if hasattr(self, 'on_start') and self.on_start: self.on_start(*([] if hasattr(self.on_start, 'im_self') else [self]))
-		super(Thread, self).start()
-
-	def __stop(self):
-		if hasattr(self, 'on_stop') and self.on_stop: self.on_stop(*([] if hasattr(self.on_stop, 'im_self') else [self]))
-		super(Thread, self).__stop()
+def log_fallback(self, *args):
+	print '%s  %s' % (self, ' '.join(map(str, args)))
 
 
-class Server(Thread):
-	default_address = ('localhost', 9000)
+class Server(SocketServer.ThreadingTCPServer):
 
-	def __init__(self, address=None, handler=None, log=None, debug=0, **kw):
-		super(Server, self).__init__()
-		self.address = address or Server.default_address
-		self.handler_class = handler or Client
-		self.socket = False
-		self.running = False # means initializing
+	def __init__(self, server_address, requesthandler, log=None, debug=0):
+		# SocketServer.ThreadingMixin does not inherit object, so no super()
+		self.allow_reuse_address = True
+		SocketServer.ThreadingTCPServer.__init__(self, server_address, requesthandler)
 		self.test_mode = debug
 		self._clients = []
-		if not log:
-			def log(*x): print x
-		self.log = partial(log, self) if log else lambda *x: None
+		self.log = partial(log or log_fallback, self)
 
 	def start(self):
-		return super(Server, self).start() or self
+		self.thread = threading.Thread(target=self.serve_forever)
+		self.thread.start()
+		return self
 
-	def run(self):
-		try:
-			self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.socket.settimeout(5)
-			self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-			self.socket.bind(self.address)
-			self.socket.listen(1)
-			self.on_run()
-			# if other threads called stop(), making it None, don't change it
-			if self.running == False: self.running = True
-			while self.running:
-				try:
-					self.add_client(self.socket.accept())
-				except socket.timeout:
-					if not self.running: break
-				else:
-					if not self.test_mode: continue
-					self.test_mode -= 1
-					if self.test_mode > 0: continue
-					time.sleep(1)
-					self.stop('ending test mode, waiting for %d client to close' % len(self.clients))
-					break
-		except Exception as e:
-			self.stop(e)
-		finally:
-			# close socket here, preventing socket errors by other threads closing it sooner
-			self.socket.close()
-			self.stop()
-
-	def stop(self, reason=None):
-		if self.running: self.running = None
-
-	def __del__(self): self.stop()
-
-	def on_start(self): pass
-	def on_run(self): pass
-	def on_stop(self): pass
-	def on_connection(self, client): pass
-	def on_message(self, client, message): pass
+	def process_request(self, request, client_address):
+		# starts finish_request(req, addr) and shutdown_request(req) in a thread
+		SocketServer.ThreadingTCPServer.process_request(self, request, client_address)
+		if not self.test_mode: return
+		self.test_mode -= 1
+		if self.test_mode > 0: return
+		self.log('ending test mode, %d clients active' % len(self.clients))
+		self.shutdown()
 
 	def lock(self, name):
 		name = 'lock_' + name
@@ -107,6 +53,17 @@ class Server(Thread):
 		if not lock: lock = threading.RLock()
 		yield lock.acquire()
 		lock.release()
+
+	@property
+	def running(self):
+		return self._BaseServer__serving and not self._BaseServer__is_shut_down.is_set()
+
+	@property
+	def clients(self, filename=''):
+		return [x for x in self._clients if x and x.running]
+
+	def remove_client(self, client):
+		if client.running: self._clients.remove(client)
 
 	def for_each_client(self, method=None, *args, **kw):
 		# when decorating, called with a single function argument
@@ -125,19 +82,6 @@ class Server(Thread):
 			return res
 		return f(self) if self else f
 
-	@property
-	def clients(self, filename=''):
-		return [x for x in self._clients if x and x.running and x.is_alive()]
-
-	def add_client(self, addr):
-		if self.on_connection(addr): return
-		client = self.handler_class(addr[0], addr[1], server=self)
-		self._clients.append(client)
-		client.start()
-
-	def remove_client(self, client):
-		if client.running: self._clients.remove(client)
-
 	@for_each_client
 	def broadcast(self, client, message):
 		self.log('broadcasting to', client, message)
@@ -148,31 +92,10 @@ class WebSocketHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 	# websocket recipe from on https://gist.github.com/jkp/3136208
 	magic = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 
-	def handle(self):
-
-		# sample websocket request:
-
-		# GET /some/path/ HTTP/1.1
-		# Upgrade: websocket
-		# Connection: Upgrade
-		# Host: localhost:9000
-		# Origin: http://localhost
-		# Pragma: no-cache
-		# Cache-Control: no-cache
-		# Sec-WebSocket-Key: YGbMI5TKfyADYxqqy0w4LQ==
-		# Sec-WebSocket-Version: 13
-		# Sec-WebSocket-Extensions: x-webkit-deflate-frame
-		# User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.15 Safari/537.36
-		# Cookie: PHPSESSID=nl2sbe2ga5rtkn5i0obq97cdm3
-
-		# some vars from BaseHTTPRequestHandler:
-		# self.error_code
-		# self.command # GET
-		# self.path
-		# self.headers.get('Origin')
-
-		if self.handshake_done: return self.handshake_done
-
+	def setup(self):
+		# no super, as BaseRequestHandler does not inherit object
+		BaseHTTPServer.BaseHTTPRequestHandler.setup(self)
+		if hasattr(self, 'handshake_done') and self.handshake_done: return
 		self.raw_requestline = self.rfile.readline()
 		self.error_code = self.error_message = None
 		self.parse_request()
@@ -232,77 +155,56 @@ class WebSocketHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 		return self.request.send(message)
 
 
-class Client(Thread, WebSocketHandler):
+class Client(WebSocketHandler):
 
-	# BaseRequestHandler: setup, handle, finish; request, client_address, server
-	# StreamRequestHandler: self.connection == self.request (the socket), rfile/wfile (file-likes)
-
-	def __init__(self, request, address, server, timeout=1, log=None):
-		Thread.__init__(self)
-		request.settimeout(timeout)
-		self.handshake_done = False
-		self.handshake_timeout = time.time() + 5 # stop if handshake is not finished
+	def setup(self):
+		WebSocketHandler.setup(self)
 		self.running = False
+		self.connection.settimeout(1)
+		self.handshake_timeout = time.time() + 5 # stop if no data after handshake
 		self.lock_read = threading.RLock()
 		self.lock_send = threading.RLock()
-		# does the handshake, sets self.headers, self.path (among several others)
-		WebSocketHandler.__init__(self, request, address, server)
+		self.server._clients.append(self)
 
-		if not log:
-			if self.server.log:
-				if isinstance(self.server.log, partial): log = self.server.log.func
-				elif hasattr(server.log, 'im_func'): log = self.server.log.im_func
-			else:
-				def log(*x): print x
+		log = log_fallback
+		if self.server.log:
+			if isinstance(self.server.log, partial): log = self.server.log.func
+			elif hasattr(self.server.log, 'im_func'): log = self.server.log.im_func
 		self.log = partial(log, self)
 
-	# BaseHTTPRequestHandler would call this in __init__, ignore it
-	def finish(self): pass
-
-	def run(self):
+	def handle(self):
 		if self.handshake_done: self.running = True
-		self.on_run()
-		try:
-			while self.running and self.read(): pass
-		finally:
-			self.stop()
+		while self.running and self.read(): pass
+
+	def finish(self, reason=''):
+		if self.running == None: return self.running
+		self.server.remove_client(self)
+		self.running = None
+		WebSocketHandler.finish(self)
+		if self.connection: self.connection.close()
+		self.log('-', 'client stopped' + ((' (%s)' % reason) if reason else ''))
+		return self.running
 
 	def read(self):
 		with self.server.locked(self.lock_read):
 			message = self.read_message() # string or None (timeout)
-		if not self.server.running: return self.stop('server closed')
-		if message == '': return self.stop('remote closed')
+		if not (self.server and self.server.running): return self.finish('server closed')
+		if message == '': return self.finish('remote closed')
 		if self.handshake_timeout:
 			if message: self.handshake_timeout = 0
 			elif self.handshake_timeout < time.time():
-				return self.stop('timeout after handshake')
+				return self.finish('timeout after handshake')
 		if message == None: return True # read timeout, continue reading
-		# continue reading if on_read(), or any message
-		# this can return very uninformative exceptions
-		try: return self.on_read(message) or len(message)
-		except Exception as e: return self.stop(repr(e))
+		return self.on_read(message) and len(message)
 
 	def send(self, message):
-		self.on_send(message)
+		message = self.on_send(message)
 		with self.server.locked(self.lock_send):
 			return self.send_message(message)
 
-	# called after run(); on_stop is called as the thread exits
-	def stop(self, reason=''):
-		if self.running == None: return self.running
-		self.server.remove_client(self)
-		self.running = None
-		# if reason: self.send('closed_connection\n\n%s' % reason)
-		if not self.rfile.closed: super(Client, self).finish()
-		if self.connection: self.connection.close()
-		return self.running
-
-	def on_start(self): pass
-	def on_run(self): pass
-	def on_stop(self): pass
-	def on_read(self, message): pass
-	def on_send(self, message): pass
+	def on_read(self, message): return len(message)
+	def on_send(self, message): return message
 
 
 if __name__ == '__main__':
-	Server(debug=3).start()
+	Server(('localhost', 9000), Client, debug=2).start()

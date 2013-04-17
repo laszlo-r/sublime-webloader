@@ -1,5 +1,5 @@
 import sublime, sublime_plugin
-import os, time, contextlib, re
+import os, time, contextlib, re, threading
 import modules
 
 
@@ -19,7 +19,7 @@ class Webloader(object):
 		self._server = None
 
 		if self.get_server(if_running=1):
-			return self.log('\nstarted -- server already running on %s:%d ' % self._server.address)
+			return self.log('\nstarted -- server already running on %s:%d ' % self._server.server_address)
 		self.check_server()
 
 	def reload_settings(self):
@@ -41,7 +41,7 @@ class Webloader(object):
 	def on_settings_change(self):
 		self.reload_settings()
 
-		if self.server_address[1] != self._server.address[1] or self.client_ips != self._server.client_ips:
+		if self.server_address[1] != self._server.server_address[1] or self.client_ips != self._server.client_ips:
 			self._server = None
 
 		if hasattr(sublime, 'webloader_events'): sublime.webloader_events.update_settings()
@@ -60,10 +60,9 @@ class Webloader(object):
 		if not self._server and hasattr(sublime, 'webloader_server'):
 			self._server = sublime.webloader_server
 			self._server.plugin = self
-			if self.server_address[1] != self._server.address[1]: self.server.stop()
+			if self.server_address[1] != self._server.server_address[1]: self.server.shutdown()
 
-		# true if running OR initializing (False)
-		if self._server and self._server.running is not None: return self._server
+		if self._server and self._server.running: return self._server
 		if if_running: return None
 
 		if not self.server_address:
@@ -72,7 +71,7 @@ class Webloader(object):
 
 		self._server = sublime.webloader_server = modules.server.Server(
 			self.server_address, plugin=self, client_ips=self.client_ips.copy(), log=self.log, debug=100).start()
-		self.log('\nserver started on %s:%d ' % self._server.address)
+		self.log('\nserver started on %s:%d ' % self._server.server_address)
 		return self._server
 
 	@property
@@ -81,8 +80,8 @@ class Webloader(object):
 
 	def command(self, cmd, filename='', content='', client=None):
 		# access self._server directly so as not to cause an automatic restart
-		if cmd == 'stop': return self._server and self._server.stop()
-		elif cmd == 'restart': return self._server and self._server.stop() or sublime.set_timeout(self.get_server, 1000)
+		if cmd == 'stop': return self._server and self._server.shutdown()
+		elif cmd == 'restart': return self._server and self._server.shutdown() or sublime.set_timeout(self.get_server, 1000)
 		elif cmd == 'start': return self.server
 
 		if self.server.running is None: return # not running, or starting
@@ -91,7 +90,7 @@ class Webloader(object):
 			try: self.server.command(cmd, filename, content, client)
 			except Exception as e: self.log('Could not send command:', e)
 
-		modules.websocket.Thread(target=runcommand).start()
+		threading.Thread(target=runcommand).start()
 
 	def status_message(self, message):
 		f = lambda: sublime.status_message("%s%s" % (self.prefix, message))
@@ -118,8 +117,8 @@ class Webloader(object):
 			obj = self
 
 		ident = ''
-		if isinstance(obj, modules.server.Client): ident = 'Client#%-5d' % (obj.ident or 0)
-		elif isinstance(obj, modules.server.Server): ident = 'Server#%-5d' % (obj.ident or 0)
+		if isinstance(obj, modules.server.Client): ident = 'Client:%-5d' % (obj.client_address[1] or 0)
+		elif isinstance(obj, modules.server.Server): ident = 'Server:%-5d' % (obj.server_address[1] or 0)
 		elif obj == self: ident = 'Webloader'
 
 		sign = ['| ', ''][len(message) > 1 and isinstance(message[0], str) and len(message[0]) == 1]

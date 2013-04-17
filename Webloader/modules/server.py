@@ -19,11 +19,30 @@ class Message(dict):
 
 class Server(websocket.Server):
 
-	def __init__(self, address=None, plugin=None, client_ips=None, *args, **kw):
-		if not kw.get('handler'): kw['handler'] = Client
-		super(Server, self).__init__(address, *args, **kw)
+	def __init__(self, address=None, requesthandler=None, plugin=None, client_ips=None, *args, **kw):
+		if not requesthandler: requesthandler = Client
+		websocket.Server.__init__(self, address, requesthandler, *args, **kw)
 		self.plugin = plugin
 		self.client_ips = client_ips
+
+	# do not call in same thread as serve_forever, that will deadlock
+	def shutdown(self, reason=''):
+		if not self.running: return
+		self.log('-', 'server stopped' + ((' (%s)' % reason) if reason else ''))
+		# also close socket - it's not closed by default, but this server
+		# can be restarted on the same port, so free up the socket
+		websocket.Server.shutdown(self)
+		self.socket.close()
+
+	def server_active(self):
+		websocket.Server.server_active(self)
+		self.log('listening on %s:%d%s' % (self.server_address + \
+			(self.test_mode and ' in test mode (stopping after %d clients)' % self.test_mode or '',)))
+
+	def verify_request(self, request, client_address):
+		if not self.client_ips: return True
+		ip = client_address[0]
+		return next((False for k, v in self.client_ips.iteritems() if (v.match(ip) if v else ip == k)), True)
 
 	def command(self, cmd, filename='', content='', client=None):
 		if not (cmd and len(cmd)): return False
@@ -43,38 +62,20 @@ class Server(websocket.Server):
 	def clients_watching(self, filename):
 		return filter(operator.methodcaller('watches', filename), self.clients)
 
-	def stop(self, reason=''):
-		if reason: self.log('-', 'stopping: %s' % reason)
-		super(Server, self).stop(reason)
-
-	def on_connection(self, address):
-		if not self.client_ips: return
-		address = address[1][0] # (socketobject, (address, port))
-		match = next((True for k, v in self.client_ips.iteritems() if (v.match(address) if v else address == k)), None)
-		if not match: return 1
-
 	def on_message(self, client, message):
 		self.plugin.message(client, message)
-
-	def on_start(self): pass # self.log('+', 'starting server thread')
-
-	def on_run(self):
-		self.log('listening on %s:%d%s' % (self.address + \
-			(self.test_mode and ' in test mode (stopping after %d clients)' % self.test_mode or '',)))
-
-	def on_stop(self):
-		self.log('-', 'server thread stopped')
 
 
 class Client(websocket.Client):
 	"""Stores which files to watch, so there is less traffic when broadcasting events."""
 
-	def __init__(self, *args, **kw):
-		super(Client, self).__init__(*args, **kw)
-		self.files = {}
-		self.patterns = {}
+	def setup(self):
+		websocket.Client.setup(self) # parse request, set self.path, etc
+
 		# these types should match only against the watched file list, but not patterns
 		self.noregexp_extensions = ['css', 'less', 'sass', 'scss', 'js']
+		self.files = {}
+		self.patterns = {}
 
 		# clients should send their full page url (path is /?client=pageurl)
 		url = urlparse.urlparse(self.path) # original url parts
@@ -92,32 +93,35 @@ class Client(websocket.Client):
 		self.localhost = url.netloc in ['localhost', '127.0.0.1', '::1']
 		self.virthost = not self.localhost and self.host.find('.') > -1 and not self.host.replace('.', '').isdigit()
 
-	def on_run(self):
 		self.log('+', 'connection from %s:%d %s://%s' % (self.client_address + (self.protocol, self.page)))
 
-	def on_stop(self):
-		self.log('-', 'client thread stopped')
-
-	def stop(self, reason=''):
-		if reason: self.log('-', 'stopping client: %s' % reason)
-		super(Client, self).stop(reason)
-
 	def on_read(self, message):
-		"""Parses client messages; currently only supports the watch and message commands."""
-
 		self.log("<", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
 		message = Message(message)
-		cmd = message.get('cmd')
-		filename = message.get('filename')
-		content = message.get('content')
+		cmd, filename, content = message.get('cmd'), message.get('filename'), message.get('content')
 
 		if cmd == 'watch': self.watch_files(content) # replaces existing watchlist
 		elif cmd == 'message': self.server.on_message(self, content)
 		elif cmd == 'parsed_less': self.save_parsed_less(filename, content)
 		elif cmd == 'js_results': self.show_js_results(filename, content)
+		return True # continue reading
 
 	def on_send(self, message):
-		self.log(">", "'%s' (%d)" % (message.replace('\n', '\\n')[0:80], len(message)))
+		# leave the original message intact, it's passed around
+		message = Message(message)
+		filename = message.get('filename')
+		if filename:
+			matched = self.watches(filename)
+			if not matched: return
+			if isinstance(matched, tuple):
+				# a regexp match should fit the domain+basepath of the client
+				if not self.page.startswith(matched[0]): return
+				matched = '...'.join(matched)
+				message['cmd'] = 'reload_page'
+			# don't send the full filename, just the matched part (privacy)
+			message['filename'] = matched
+		self.log(">", "'%s' (%d)" % (message.pack().replace('\n', '\\n')[0:140], len(message.pack())))
+		return message.pack()
 
 	def watch_files(self, files):
 		if not (files and isinstance(files, list)): return
@@ -219,27 +223,6 @@ class Client(websocket.Client):
 			self.files[filename] = next(itertools.ifilter(None, itertools.imap(matches, patterns)), False)
 		return filename if self.files[filename] is None else self.files[filename]
 
-	def send(self, message):
-		sending = super(Client, self).send
-		filename = message.get('filename')
-		changes = {}
-		if filename:
-			matched = self.watches(filename)
-			if not matched: return
-			if isinstance(matched, tuple):
-				# a regexp match should fit the domain+basepath of the client
-				if not self.page.startswith(matched[0]): return
-				matched = '...'.join(matched)
-				changes['cmd'] = 'reload_page'
-			# don't send the full filename, just the matched part (privacy)
-			changes['filename'] = matched
-
-		# leave the original message intact, it's passed around
-		if changes:
-			message = Message(message)
-			message.update(changes)
-		sending(message.pack())
-
 	def save_parsed_less(self, filename, parsed):
 		try:
 			save = self.server.plugin.save_parsed_less
@@ -263,4 +246,23 @@ class Client(websocket.Client):
 
 
 if __name__ == '__main__':
-	Server(debug=3).start()
+	import threading
+	from time import sleep
+	print 'starting server'
+	server = Server(('localhost', 9000), Client, debug=2).start()
+	print threading.enumerate()
+	print 'server running:', server
+	sleep(10)
+	print 'shutting down'
+	server.shutdown()
+	sleep(1)
+	print threading.enumerate()
+	print 'restarting server'
+	server = Server(('localhost', 9000), Client, debug=2).start()
+	print threading.enumerate()
+	print 'server running:', server
+	sleep(5)
+	server.shutdown()
+	sleep(1)
+	print threading.enumerate()
+	print 'done'
