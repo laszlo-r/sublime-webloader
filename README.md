@@ -10,11 +10,12 @@ __Still very much in development, but suggestions and fixes are welcome.__
 
 How to use:
 -----------
-- no package control yet, but it's quite easy to install manually:
-  - download as zip, unzip, and move the Webloader folder under your Sublime Packages folder
-  - windows: `youruserfolder\AppData\Roaming\Sublime Text 2\Packages`
-  - os x: `~/Library/Application Support/Sublime Text 2`
-  - linux: `~/.config/sublime-text-2`
+- install with Package Control: `ctrl-shift-p`, `Package Control: Install Package`, `Webloader`
+- if not available there yet, it's quite easy to install manually:
+  - download as zip, unzip, and copy the root folder's contents into Packages/Webloader/
+  - windows: `youruserfolder\AppData\Roaming\Sublime Text 2\Packages\Webloader`
+  - os x: `~/Library/Application Support/Sublime Text 2/Webloader`
+  - linux: `~/.config/sublime-text-2/Webloader`
   - restart Sublime (the console should show a `Webloader:` message if the plugin loaded)
 - open `Webloader/demo/index.html` in a browser (the javascript console should tell if it started watching files)
 - edit `sample.css` with Sublime, and see the changes on the page *as you type*
@@ -41,7 +42,6 @@ Used in your projects:
 
 Future plans:
 -------------
-- submit to package control
 - more polished codebase, as I'm still changing it around daily
 - more/simpler options and Sublime file-actions
 - I may release under a less restrictive license later, when I feel it's ready
