@@ -3,6 +3,5 @@ Lib
 Scripts
 *.pyc
 *.log
-plog.sublime*
 download
 *.bat
