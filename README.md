@@ -18,7 +18,7 @@ How to use:
   - linux: `~/.config/sublime-text-2/Webloader`
   - restart Sublime (the console should show a `Webloader:` message if the plugin loaded)
 - open `Webloader/demo/index.html` in a browser (the javascript console should tell if it started watching files)
-- edit `sample.css` with Sublime, and see the changes on the page *as you type*
+- edit `demo.css` with Sublime, and see the changes on the page *as you type*
 - open `index.html` with Sublime, add some text, save it, this should refresh the page
 - if you put this under your webserver (opened as `http://.../index.html`), `.less` files can be updated live too!
 
@@ -32,11 +32,10 @@ Used in your projects:
   - and you may have to enable this port in your firewall
 - check out the settings in the `Packages/Webloader/Webloader.sublime-settings` file:
   - server: if you want to change the above port
-  - save\_parsed\_less: if you want to enable converting `.less` to `.css` on save
   - clients: if you do not trust your lan, or opened the above port to the wide internet
+  - save\_parsed\_less: if you want to enable converting `.less` to `.css` on save
   - watch_events: if you want to add or remove file types
   - sites: if you use virthosts, symlink directories to your docroot, or similar
-  - some thing may not be fully supported, see the settings file's comments
 - you can run javascript on a page directly from Sublime with `ctrl-shift-j`
 - you can send commands to the server with `ctrl-shift-c` (currently only supports stop/restart/start)
 
