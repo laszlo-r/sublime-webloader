@@ -1,8 +1,5 @@
-/* Uncomment some lines, or add your own definitions */
 body {
-  /*
-	background: white;
-	color: black;
-*/
+  /* Add a color, or any other definitions you want to test. */
 
+  color: change-me;
 }

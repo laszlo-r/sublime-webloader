@@ -87,8 +87,7 @@ class Webloader(object):
 		if self.server.running is None: return # not running, or starting
 
 		def runcommand():
-			try: self.server.command(cmd, filename, content, client)
-			except Exception as e: self.log('Could not send command:', e)
+			self.server.command(cmd, filename, content, client)
 
 		threading.Thread(target=runcommand).start()
 
@@ -149,7 +148,6 @@ class WebloaderEvents(sublime_plugin.EventListener):
 	def __init__(self):
 		self.debug_level = webloader.settings.get('debug_level', 0)
 		self.parser = modules.css.Parser()
-		self.last_change = modules.css.Block()
 		self.focused = True # Sublime window active
 		self.active = False # watching the currently open file
 		self.live_update = False # live-updating changes in current file
@@ -228,19 +226,12 @@ class WebloaderEvents(sublime_plugin.EventListener):
 	def on_close(self, view): self.file_event(view, 'close', 'closed')
 
 	def on_modified(self, view):
+		"""Checks css/less changes, and sends updates when necessary."""
 		if not (self.focused and self.active and self.live_update and view.file_name()): return
-
-		# TODO:
-		# 1. validate the currently edited "key:value;" against known keys, skip if unknown
-		# 2. remove whitespace, compare to previous update, skip if unchanged
-		# 3. figure out an efficient way for selector and bracket changes (don't send a whole file)
-
-		cursor = view.sel()[0]
-		line = view.substr(view.line(cursor))
-		sublime.status_message("%supdating line: %s" % (webloader.prefix, line))
-		block_info = self.parser.block_info(cursor.begin(), view.substr(sublime.Region(0, view.size())))
-		self.last_change = block_info
-		self.file_event(view, 'edit', content=str(block_info))
+		changes = self.parser.has_changed(view)
+		if not changes: return
+		sublime.status_message("%supdating %s" % (webloader.prefix, os.path.basename(view.file_name())))
+		self.file_event(view, 'edit', content=changes)
 
 
 class WebloaderJsCommand(sublime_plugin.WindowCommand):

@@ -1,16 +1,14 @@
 
 TODO:
 -----
-- test utf8 characters in urls and paths, test linux paths (currently first bit removed with paths like file:///C:/)
-- test various sites settings, virthosts, symlinked paths, etc
-- hotkey for page reload for the selected/single client; definitely, page reloading on every save may be annoying and slow for some
-- add menu items for options and commands
-- currently clients can call self.server, which could have exited and been deleted meanwhile
-- use standard logging
-- revisit and test bigger css updates, like whole less blocks, fix selector updates (not updated on edit, only with saving)
-  - faster updates: could only send the current key-value pair, between previous and next semicolons or brackets, maybe validate them
-  - multiple selections: with less you probably factor out frequently used values into variables, so not a priority
-  - a full refresh would be is necessary, which is slow with large files + typing; could timeout for 0.5-1sec when multiple selections
+- add: hotkey for page reload for the current client; page reloading on every save may be annoying and slow for some
+- add: menu items for options and commands
+- add: standard logging
+- fix: currently clients can call self.server, which could have exited and been deleted meanwhile
+- fix: after a restarted server, a client's on_send returned None -- verify if this still happens
+- test: utf8 characters in urls and paths, test linux paths (currently first bit removed with paths like file:///C:/)
+- test: various sites settings, virthosts, symlinked paths, etc
+- test: speed with large css/less files, add a small timeout if needed
 - lesscss is apache 2 licensed (free, include all credits), prototype is MIT (free)
 
 Simple changelog
@@ -27,3 +25,5 @@ Simple changelog
 + update readme
 + server and websocket now build upon SocketServer classes, using select()
 + submit to package control
++ rewrote css/less updates, should work with valid css, and multi-selections; full-file updates, but only when changes matter
++ updates go into a 'css:' or the existing 'less:' style tag; less files saved as css now get proper url() paths

@@ -107,7 +107,7 @@ function WebLoader() {
 			this.log((!this.commands[cmd[0]] ? 'unknown ' : '') +
 				'command "%s" (%s)\n-- file: "%s"\n-- content (%s):\n%s-- message:',
 				cmd.join(' '), $H(message).keys().join(', '), file, content.length,
-				content.replace('\n', '\\n\n') + (!content || content.endsWith('\n') ? '' : '\n'), message);
+				(content ? content.slice(0, 100).replace('\n', '\\n\n') + '\n...' : ''), message);
 		return this.commands[cmd[0]] ? this.commands[cmd[0]].apply(this, [cmd, item || file, content]) : null;
 	}
 
@@ -154,7 +154,7 @@ function WebLoader() {
 		this.add_command('saved', reload_file);  // reload a freshly saved file
 
 		this.add_command('update', function(cmd, file, content) {
-			if (file.type === 'text/css' && content) this.less_update(file, content);
+			if (file.type === 'text/css' && content) this.css_update(file, content);
 			else console.log(cmd, file, content);
 		})
 
@@ -183,12 +183,6 @@ function WebLoader() {
 
 				var ref = this, style = item.nextElementSibling, url = item.href;
 
-				// use the less-generated style element for updating
-				if (style.id && (style.id.startsWith('less:') || style.id.startsWith('less-webloader:')))
-					this.remove_custom_styles(file);
-				else if (this.debug > 1)
-					this.log('when updating %s, found this style:', file, style);
-
 				if (!this.is_less(item)) return;
 
 				new Ajax.Request(url, {
@@ -197,10 +191,13 @@ function WebLoader() {
 					},
 					onSuccess: function(response) {
 						if (ref.debug > 1) ref.log('ajax: updating %s with', url, response);
-						var parsed = ref.less_parse(response.responseText, item);
+						var parsed = ref.less_parse(response.responseText, item, 1);
 						style.textContent = parsed;
-						if (cmd && cmd[1] === 'save_parsed_less')
+						if (cmd && cmd[1] === 'save_parsed_less') {
+							// parse again without rootpath (in a css, url() paths should be relative to the css file)
+							parsed = ref.less_parse(response.responseText, item);
 							ref.send_command('parsed_less', ref.file_handle(file), parsed);
+						}
 					}
 				});
 			}
@@ -240,11 +237,8 @@ function WebLoader() {
 	}
 
 	this.less_handle = function(file) {
-		return (file = this.file_handle(file)) && 'less:' + file.replace(/[^\w\.-]+/g, '-').slice(1, file.lastIndexOf('.'));
-	}
-
-	this.custom_less_handle = function(file, id) {
-		return this.format('less-webloader:%s:%s', file, (id ? id.replace(/ /g, '-') : ''));
+		file = this.file_handle(file);
+		return file && (file.endsWith('.css') ? 'css:' : 'less:') + file.replace(/[^\w\.-]+/g, '-').slice(1, file.lastIndexOf('.'));
 	}
 
 	this.less_element = function(file) {
@@ -252,45 +246,22 @@ function WebLoader() {
 		return $A(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(handle); }).first();
 	}
 
-	this.custom_styles = function(file, id) {
-		var handle = this.custom_less_handle(file, id);
-		return $A(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(handle); });
-	}
-
-	this.remove_custom_styles = function(file, id) {
-		if (this.debug > 1)
-			this.log('removing custom styles for "%s"', this.custom_less_handle(file, id));
-
-		// remove every style for this file, if id not specified
-		var styles = this.custom_styles(file, id);
-		if (!id) return styles.each(function(a) { a.parentNode.removeChild(a); }).length
-
-		// in every custom style for this file, remove definitions for only that id
-
-		var start = id + ' {\n', ending = "}\n";
-		var has_this_id = function(a) { return a.textContent.indexOf('\n' + id) > -1 || a.textContent.slice(0, id.length) === id; }
-		var cut_content = function(target) {
-			var i = target.textContent.indexOf(start),
-				j = target.textContent.indexOf(ending, i);
-			// console.log(('removing "' + start + '...' + ending + '" from ' + target.id).replace(/\n/g, '|'))
-			target.textContent = target.textContent.slice(0, i) + target.textContent.slice(j);
-		}
-		styles.filter(has_this_id).each(cut_content)
-	}
-
-	this.less_update = function(file, styles) {
+	this.css_update = function(file, styles) {
 		var handle = this.file_handle(file),
+			id = this.less_handle(handle),
 			sheet = this.less_element(handle),
-			id = styles.slice(0, styles.indexOf('{')).strip(), // css selector part
-			css, next
+			is_less = id.startsWith('less:'), css, next
 
-		this.remove_custom_styles(handle, id);
+		// disable the original element's rules; add the file's path to url() definitions
+		if (!is_less) {
+			file.disabled = true;
+			styles = styles.replace(/(\Wurl\(\s*)(?=[^\/])/g, "$1" + this.relative_css_path(file));
+		} else
+			styles = this.less_parse(styles, file);
 
-		id = this.custom_less_handle(handle, id);
-		styles = this.less_parse(styles, file);
-
+		if (typeof styles !== 'string') return;
 		if (this.debug > 1)
-			this.log('updating "%s", style id "%s", with:\n%s', handle.slice(handle.lastIndexOf('/') + 1), id, styles)
+			this.log('updating "%s", style id "%s"', handle.slice(handle.lastIndexOf('/') + 1), id)
 
 		// lookup or make a style element, put after the "less:" element
 		if (!(css = document.getElementById(id))) {
@@ -315,9 +286,11 @@ function WebLoader() {
 		}
 	}
 
-	this.less_parse = function(styles, fileelem) {
+	this.less_parse = function(styles, fileelem, setpath) {
 		if (!less || !less.Parser) return this.log('no less object found, is a less.js included?');
-		var err, result, parser = new less.Parser({ rootpath: this.relative_css_path(fileelem) });
+		var err, result,
+			env = setpath ? { rootpath: this.relative_css_path(fileelem) } : {},
+			parser = new less.Parser(env);
 		parser.parse(styles, function(err, tree) { result = [err, tree]; });
 		return (err = result[0]) ?
 			(this.debug > 1 && this.log('less parser: ' + err.message + ' (column ' + err.index + ')')) :

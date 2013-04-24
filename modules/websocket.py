@@ -199,6 +199,7 @@ class Client(WebSocketHandler):
 
 	def send(self, message):
 		message = self.on_send(message)
+		if not message: return 0
 		with self.server.locked(self.lock_send):
 			return self.send_message(message)
 

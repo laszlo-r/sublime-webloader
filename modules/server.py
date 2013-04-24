@@ -76,6 +76,7 @@ class Client(websocket.Client):
 		self.noregexp_extensions = ['css', 'less', 'sass', 'scss', 'js']
 		self.files = {}
 		self.patterns = {}
+		if not hasattr(self, 'path'): self.path = ''
 
 		# clients should send their full page url (path is /?client=pageurl)
 		url = urlparse.urlparse(self.path) # original url parts
@@ -110,6 +111,7 @@ class Client(websocket.Client):
 		# leave the original message intact, it's passed around
 		message = Message(message)
 		filename = message.get('filename')
+		# if no filename, any message can go on, otherwise only matching files
 		if filename:
 			matched = self.watches(filename)
 			if not matched: return
@@ -120,8 +122,9 @@ class Client(websocket.Client):
 				message['cmd'] = 'reload_page'
 			# don't send the full filename, just the matched part (privacy)
 			message['filename'] = matched
-		self.log(">", "'%s' (%d)" % (message.pack().replace('\n', '\\n')[0:140], len(message.pack())))
-		return message.pack()
+		message = message.pack()
+		self.log(">", "'%s' (%d)" % (message.replace('\n', '\\n')[0:140], len(message)))
+		return message
 
 	def watch_files(self, files):
 		if not (files and isinstance(files, list)): return

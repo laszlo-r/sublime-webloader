@@ -1,24 +1,72 @@
+import sublime
 import itertools
 from functools import partial
 
 class Parser(object):
-	"""Parses less and css definitions; methods always work on the current content."""
+	"""Parses less and css definitions; methods always work on self.content."""
 
 	def __init__(self, content=''):
 		self.content = content
+		self.props = {}
+		self.defs = {}
 
-	def valid_pair(self, pair):
-		return len(pair) == 2 and len(pair[0].strip()) and len(pair[0].split()) == 1 \
-			and len(pair[1].strip())
+	def brackets_match(self):
+		"""True if the brackets match in self.content (<0.01s on a 10k file)."""
+		return not sum(map(lambda x: 1 if x == "{" else -1 if x == "}" else 0, self.content))
 
-	def validate(self, line, position):
-		# print "validating: '%s', '%s', %d" % (line, line[position], position)
-		line = line.strip()
-		a, b = line.find('{') + 1, max(line.rfind('}'), 0) or len(line)
-		line = line[a:b].strip()
-		# problematic = map(lambda x: x.split(':'), line.split(';'))
-		# print "validating: '%s'" % line
-		return 1
+	def find_next(self, keys, range):
+		"""Returns (index, key) for the first key found in content in this range."""
+		return next(((x, self.content[x]) for x in range if self.content[x] in keys), None)
+
+	def get_block(self, view):
+		"""Returns the brackets (with positions) and text of a block."""
+		cursor = view.sel()[0]
+		brackets = dict.fromkeys('{}', 0)
+		start = self.find_next(brackets, reversed(xrange(0, cursor.begin()))) or (-1, '')
+		end = self.find_next(brackets, xrange(cursor.begin(), view.size())) or (view.size(), '')
+		block = view.substr(sublime.Region(start[0] + 1, end[0]))
+		return start, end, block
+
+	def definitions(self, block, validate=0, with_selector=0):
+		"""Returns css definitions from a block, validated if asked.
+
+		If with_selector, the (stripped) part after the last ';' is included.
+		"""
+		defs = map(self.definition_pair, str(block).split(';'))
+		if with_selector: defs[-1] = [' '.join(defs[-1][0].split()), True]
+		return dict(filter(self.valid_pair, defs) if validate else defs)
+
+	def definition_pair(self, x):
+		return map(str.strip, (x.split(':', 1) + [''])[0:2])
+
+	def valid_pair(self, x):
+		return len(x) == 2 and x[0] and x[1] and (x[0][0] == '@' or self.props.get(x[0]) or x[1] is True)
+
+	def get_css_props(self):
+		import css_completions
+		self.props = css_completions.parse_css_data(css_completions.css_data)
+
+	def has_changed(self, view):
+		"""Checks the current block for changes, returns true if they matter.
+
+		Verifies the following:
+		- brackets don't match? ignore the change
+		- find the current block, put it's VALID definitions into a dict
+		- if it differs from the previous in self.defs, return true
+		- if the block ends with '{', selector changes also matter
+		"""
+		self.content = view.substr(sublime.Region(0, view.size()))
+		if not self.brackets_match(): return
+
+		# this is a built-in module, assume it's available now
+		if not self.props: self.get_css_props()
+
+		start, end, block = self.get_block(view)
+		defs = self.definitions(block, validate=1, with_selector=end[1] == '{')
+		if self.defs == defs: return
+		self.defs = defs
+		return self.content
+
 
 	def block_info(self, position, content=None):
 		"""Returns a Block, with parent selectors and contents for the block at position."""
