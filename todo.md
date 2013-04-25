@@ -1,8 +1,6 @@
 
 TODO:
 -----
-- add: hotkey for page reload for the current client; page reloading on every save may be annoying and slow for some
-- add: menu items for options and commands
 - add: standard logging
 - fix: currently clients can call self.server, which could have exited and been deleted meanwhile
 - fix: after a restarted server, a client's on_send returned None -- verify if this still happens
@@ -27,3 +25,4 @@ Simple changelog
 + submit to package control
 + rewrote css/less updates, should work with valid css, and multi-selections; full-file updates, but only when changes matter
 + updates go into a 'css:' or the existing 'less:' style tag; less files saved as css now get proper url() paths
++ added a reload page command for F5; added commands to command palette; better client selection when multiple clients

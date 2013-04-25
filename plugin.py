@@ -238,12 +238,14 @@ class WebloaderJsCommand(sublime_plugin.WindowCommand):
 	def __init__(self, *args, **kw):
 		super(WebloaderJsCommand, self).__init__(*args, **kw)
 		self.clients = []
-		self.client = None
+		self._client_id = None
 		self.open = 0
 		self.prev = "console.log('Hey!')"
 
-	def run(self, run_prev=None, *args, **kw):
-		if self.client not in webloader.server.clients: return self.select_client()
+	def run(self, cmd=None, content='', *args, **kw):
+		if self.client not in webloader.server.clients: self.select_client(cmd, content)
+		if not self.client: return
+		if cmd: return webloader.command(cmd, content=content, client=self.client)
 		self.show_panel()
 
 	def show_panel(self):
@@ -263,11 +265,16 @@ class WebloaderJsCommand(sublime_plugin.WindowCommand):
 		sublime.status_message("Running js: '%s'" % js)
 		sublime.set_timeout(self.run, 50)
 
+	@property
+	def client(self):
+		clients = [x for x in webloader.server.clients if self._client_id == self.client_id(x)]
+		return clients[0] if len(clients) == 1 else None
+
 	def client_id(self, client=None):
 		if not client: client = self.client
 		return '/'.join(client.page.rsplit('/', 3)[1:]) if client else '?'
 
-	def select_client(self):
+	def select_client(self, cmd=None, content=''):
 		watching = None
 		clients = webloader.server.clients
 
@@ -278,10 +285,12 @@ class WebloaderJsCommand(sublime_plugin.WindowCommand):
 			if watching: clients = watching
 
 		if len(clients) > 1:
+			def run_again():
+				self.run(cmd, content)
 			def setclient(index):
 				if index < 1: return
-				self.client = self.clients[index - 1]
-				sublime.set_timeout(self.run, 50)
+				self._client_id = self.client_id(self.clients[index - 1])
+				sublime.set_timeout(run_again, 50)
 
 			header = ['Select a page to run javascript on (up/down/enter or mouse):']
 			if watching: header.append("These all watch this '%s'" % os.path.basename(filename))
@@ -290,12 +299,19 @@ class WebloaderJsCommand(sublime_plugin.WindowCommand):
 			self.open = 0
 			return self.window.show_quick_panel(items, setclient)
 
-		if clients: self.client = clients[0]
+		if clients: self._client_id = self.client_id(clients[0])
+
+
+class WebloaderReloadPageCommand(sublime_plugin.WindowCommand):
+
+	def run(self, *args, **kw):
+		self.window.run_command('webloader_js', {'cmd': 'reload_page'})
 
 
 class WebloaderServerCommand(sublime_plugin.WindowCommand):
 
 	def run(self, *args, **kw):
+		print args, kw
 		if not hasattr(self, 'prev'): self.prev = ''
 		self.window.show_input_panel('Run server command', self.prev, self.on_done, None, None)
 

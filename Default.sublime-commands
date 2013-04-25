@@ -1,6 +1,14 @@
 [
 	{
+		"caption": "Webloader: run server command",
+		"command": "webloader_server"
+	},
+	{
 		"caption": "Webloader: run js command",
 		"command": "webloader_js"
+	},
+	{
+		"caption": "Webloader: reload page",
+		"command": "webloader_reload_page"
 	}
 ]
