@@ -1,5 +1,5 @@
 import sublime
-import itertools
+import itertools, re
 from functools import partial
 
 class Parser(object):
@@ -32,7 +32,8 @@ class Parser(object):
 
 		If with_selector, the (stripped) part after the last ';' is included.
 		"""
-		defs = map(self.definition_pair, str(block).split(';'))
+		block = re.sub(r"/[*].*[*]/", '', str(block))
+		defs = map(self.definition_pair, block.split(';'))
 		if with_selector: defs[-1] = [' '.join(defs[-1][0].split()), True]
 		return dict(filter(self.valid_pair, defs) if validate else defs)
 

@@ -171,12 +171,7 @@ function WebLoader() {
 		this.onreloads = {
 			'*': function(item, file, cmd) {
 				var len = this.stime().length, attr = item.href ? 'href' : 'src', url = item[attr];
-				if (url.slice(-len).match(/[0-9]{2}:[0-9]{2}:[0-9]{2}$/)) {
-					if (this.debug > 1)
-						this.log('removing hash from url: %s', url);
-					len = -len - (url.slice(-len - 1, -len) === '?' || url.slice(-len - 1, -len) === '&' ? 1 : 0);
-					item[attr] = url.slice(0, len);
-				}
+				// reserved for later
 			},
 			less: function(item, file, cmd) {
 				if (!item || item.type !== 'text/css') return;
