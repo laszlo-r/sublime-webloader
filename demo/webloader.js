@@ -2,8 +2,12 @@
 
 function WebLoader() {
 
+	if (!String.prototype.endsWith) {
+		String.prototype.startsWith = function(x) { return this.slice(0, x.length) === x; }
+		String.prototype.endsWith = function(x) { return this.slice(-x.length) === x; }
+	}
+
 	this.init = function() {
-		// console.clear();
 		this.server = { host: 'localhost', port: 9000, re_min_interval: 15, re_timer: 0 };
 		this.debug = 1;
 
@@ -28,7 +32,7 @@ function WebLoader() {
 		// this.test_regexp(this.file_pattern, 5); // pattern, expected number of pieces
 
 		var get_file_info = function(a) { return (a = a.href || a.src) && (a = a.match(this)) && a.slice(1); },
-			files = document.head.childElements().map(get_file_info, this.file_pattern).filter(this.is_true);
+			files = this.array(document.head.children).map(get_file_info, this.file_pattern).filter(this.is_true);
 
 		this.check_server_params(files);
 
@@ -40,10 +44,11 @@ function WebLoader() {
 			scriptname = '/webloader.js';
 
 		var param_name = function(x, i) { return x && [server_params[i], x]; },
-			get_params = function(a) { return a && a[0] && a[0].endsWith(scriptname) && a.slice(1).map(param_name).without(undefined); },
+			defined = function(a) { return !!a; },
+			get_params = function(a) { return a && a[0] && a[0].endsWith(scriptname) && a.slice(1).map(param_name).filter(defined); },
 			add_params = function(a) { if (a && a[1]) this[a[0]] = a[1]; };
 
-		(files.map(get_params).without(0).first() || []).each(add_params, this.server);
+		(files.map(get_params).filter(this.is_true).shift() || []).map(add_params, this.server);
 	}
 
 	this.request_watching = function() {
@@ -59,13 +64,13 @@ function WebLoader() {
 	this.file_handle = function(file) {
 		if (typeof file !== 'string') file = file.href || file.src;
 		if (file.indexOf('//') > -1) return (file = file.match(this.file_pattern)) && file[1] || '';
-		return this.files.filter(function(a) { return a.endsWith(file); }).first() || ''
+		return this.files.filter(function(a) { return a.endsWith(file); }).shift() || ''
 	}
 
 	this.file_element = function(filehandle) {
 		if (!filehandle.startsWith('/')) filehandle = this.file_handle(filehandle)
 		var matches = function(a) { return (a.href || a.src || '').split('?')[0].endsWith(filehandle); };
-		return document.head.childElements().filter(matches).first();
+		return this.array(document.head.children).filter(matches).shift();
 	}
 
 	this.send_command = function(cmd, file, content) {
@@ -93,7 +98,7 @@ function WebLoader() {
 		// else: split by first space, let the command method sort out arguments
 
 		cmd = single_arg === false ?
-			cmd.split(' ').without('') :
+			cmd.split(' ').filter(this.is_true) :
 			(single_arg <= 0 ? [cmd] : [cmd.slice(0, single_arg), cmd.slice(single_arg + 1)])
 
 		this.command(cmd, file, content, message);
@@ -106,7 +111,7 @@ function WebLoader() {
 		if (!this.commands[cmd[0]] || this.debug > 1)
 			this.log((!this.commands[cmd[0]] ? 'unknown ' : '') +
 				'command "%s" (%s)\n-- file: "%s"\n-- content (%s):\n%s-- message:',
-				cmd.join(' '), $H(message).keys().join(', '), file, content.length,
+				cmd.join(' '), Object.keys(message).join(', '), file, content.length,
 				(content ? content.slice(0, 100).replace('\n', '\\n\n') + '\n...' : ''), message);
 		return this.commands[cmd[0]] ? this.commands[cmd[0]].apply(this, [cmd, item || file, content]) : null;
 	}
@@ -132,10 +137,15 @@ function WebLoader() {
 			}
 
 			var clone = function(a) {
-				var e = document.createElement(a.tagName), attr = (a.href ? 'href' : 'src');
-				$A(a.attributes).each(function(x, i) { e[x.name] = x.value; });
-				e.className += (e.className ? ' ' : '') + 'reloaded:' + this.stime();
-				e[attr] = e[attr] + (e[attr].indexOf('?') > -1 ? '&' : '?') + this.stime();
+				var e = document.createElement(a.tagName),
+					attr = (a.href ? 'href' : 'src'),
+					skey = 'reloaded=',
+					stamp = skey + this.stime();
+				Array.prototype.slice.call(a.attributes, 0).map(function(x, i) { e[x.name] = x.value; });
+				e.className += (e.className ? ' ' : '') + stamp.replace('=', ':');
+				var tail = e[attr].slice(-(stamp.length + 1));
+				if (tail.startsWith('?' + skey) || tail.startsWith('&' + skey)) e[attr] = e[attr].slice(0, -(stamp.length + 1));
+				e[attr] += (e[attr].indexOf('?') > -1 ? '&' : '?') + stamp;
 				return e;
 			}
 
@@ -238,7 +248,7 @@ function WebLoader() {
 
 	this.less_element = function(file) {
 		var handle = this.less_handle(file);
-		return $A(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(handle); }).first();
+		return this.array(document.getElementsByTagName('style')).filter(function(a) { return a.id.startsWith(handle); }).shift();
 	}
 
 	this.css_update = function(file, styles) {
@@ -318,7 +328,7 @@ function WebLoader() {
 			}
 		]
 
-		methods.each(function(func) { socket[func.name] = function() { func.apply(ref, arguments); } });
+		methods.map(function(func) { socket[func.name] = function() { func.apply(ref, arguments); } });
 
 		return this.socket;
 	}
@@ -386,13 +396,15 @@ function WebLoader() {
 	this.format = function() {
 		if (arguments.length < 2) return arguments[0];
 		var args = arguments;
-		return $A(args[0].split('%s')).reduce(function(res, a, i) {
+		return this.array(args[0].split('%s')).reduce(function(res, a, i) {
 			// console.log('item ' + i + ': "' + a + '", args[' + i + ']: "' + args[i] + '", current result: "' + res + '"')
 			return res + (i ? (args[i] === undefined ? '(?)' : args[i]) : '') + a;
 		}, '');
 	}
 
 	this.is_true = function(x) { return x; }
+
+	this.array = function(a) { return a.map && a.filter ? a : Array.prototype.slice.call(a); }
 
 	this.test_regexp = function(file_pattern, expected) {
 		var protocols = [
@@ -431,7 +443,7 @@ function WebLoader() {
 
 		// paths get a '/' prefix; query params a '?'; etc
 
-		var result = $A(protocols).
+		var result = this.array(protocols).
 			map(generate(domains, '')).flatten().
 			map(generate(paths, '/')).flatten().
 			map(generate(files, '')).flatten().
@@ -453,7 +465,9 @@ function WebLoader() {
 	}
 
 	var ref = this, init = function() { ref.init.apply(ref); };
-	document.loaded ? setTimeout(init, 200) : document.observe("dom:loaded", init);
+	window.webloader ?
+		window.setTimeout(init, 200) :
+		document.addEventListener('DOMContentLoaded', init);
 
 	return this;
 

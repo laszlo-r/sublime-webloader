@@ -24,8 +24,8 @@ How to use:
 
 Used in your projects:
 ----------------------
-- __in one line__: install the plugin, and include the less/prototype/webloader scripts on your page (in this order)
-- webloader.js depends on prototype, and has only been tested with this version of less.js and prototype.js
+- __in one line__: install the plugin, and include webloader.js (and if you need it, less.js) in your page
+- webloader.js works standalone, no js framework necessary; only needs a less.js if you use .less files (tested with less-1.3.3)
 - non-localhost websites:
   - if the page is not on your machine, or sees you as a different ip than localhost/127.0.0.1/::1
   - define your ip: `<script src='webloader.js?server=192.168.0.100:9000'></script>`
@@ -55,12 +55,11 @@ License:
 Credits:
 --------
 - plugin code on the [sublime API] and standard python library
-- uses less.js for compiling [lesscss.org], and [prototype] for simplifying life
+- uses [less.js] for compiling .less files
 
 
 
   [sublime API]: http://www.sublimetext.com/docs/2/api_reference.html
-  [lesscss.org]: http://lesscss.org/
-  [prototype]: http://prototypejs.org/
+  [less.js]: http://lesscss.org/
   [image]: http://i.creativecommons.org/l/by-nc-nd/3.0/88x31.png
   [license]: http://creativecommons.org/licenses/by-nc-nd/3.0/
