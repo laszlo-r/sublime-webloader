@@ -297,7 +297,7 @@ function WebLoader() {
 	/// websocket stuff
 
 	this.connect = function() {
-		var url = "ws://" + this.server.host + ':' + this.server.port + '?client=' + window.location.href;
+		var url = "ws://" + this.server.host + ':' + this.server.port + '?client=' + window.location.href.split('#')[0];
 
 		if (this.socket === undefined) this.log('connecting to server at ' + url.split('?')[0]);
 		var ref = this, socket = this.socket = new WebSocket(url);

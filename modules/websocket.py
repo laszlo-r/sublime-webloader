@@ -95,7 +95,7 @@ class WebSocketHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 	def setup(self):
 		# no super, as BaseRequestHandler does not inherit object
 		BaseHTTPServer.BaseHTTPRequestHandler.setup(self)
-		if hasattr(self, 'handshake_done') and self.handshake_done: return
+		if self.handshake_done: return
 		self.raw_requestline = self.rfile.readline()
 		self.error_code = self.error_message = None
 		self.parse_request()
@@ -158,10 +158,11 @@ class WebSocketHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 class Client(WebSocketHandler):
 
 	def setup(self):
-		WebSocketHandler.setup(self)
 		self.running = False
-		self.connection.settimeout(1)
+		self.handshake_done = False
 		self.handshake_timeout = time.time() + 5 # stop if no data after handshake
+		WebSocketHandler.setup(self)
+		self.connection.settimeout(1)
 		self.lock_read = threading.RLock()
 		self.lock_send = threading.RLock()
 		self.server._clients.append(self)
