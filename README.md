@@ -2,7 +2,7 @@
 Webloader - a Sublime Text 2 plugin
 ===================================
 
-Updates css/less on a page _live as you type_, or when saving js/html/php.
+Updates css/less _live as you type_, or reloads the page when saving js/html/php.
 
 Uses websockets, works without a webserver, with multiple pages or files at once. You can run javascript on a page directly from Sublime, define custom actions when you edit/save/load, or add more file extensions. Nothing else to install but the plugin.
 
@@ -36,13 +36,17 @@ Used in your projects:
   - save\_parsed\_less: if you want to enable converting `.less` to `.css` on save
   - watch_events: if you want to add or remove file types
   - sites: if you use virthosts, symlink directories to your docroot, or similar
+- you can refresh the browser _from Sublime_ with `F5` (use `ctrl-shift-j` to select between multiple pages)
 - you can run javascript on a page directly from Sublime with `ctrl-shift-j`
 - you can send commands to the server with `ctrl-shift-c` (currently only supports stop/restart/start)
+- if you feel like hacking around, you can add custom actions to `webloader.js` (or even `plugin.py`):
+  - the `setup_commands` and `setup_callbacks` show the default actions, feel free to customize these
+  - you can mess around with the code however you like for your own purposes, but you can't distribute it
 
 Future plans:
 -------------
 - more polished codebase, as I'm still changing it around daily
-- more/simpler options and Sublime file-actions
+- simpler and easier customization and actions
 - I may release under a less restrictive license later, when I feel it's ready
 
 License:

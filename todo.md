@@ -4,7 +4,6 @@ TODO:
 - add: standard logging
 - fix: currently clients can call self.server, which could have exited and been deleted meanwhile
 - fix: after a restarted server, a client's on_send returned None -- verify if this still happens
-- fix: distinguish between same-url clients (even after page reloading -> new client object)
 - test: utf8 characters in urls and paths, test linux paths (currently first bit removed with paths like file:///C:/)
 - test: various sites settings, virthosts, symlinked paths, etc
 - test: speed with large css/less files, add a small timeout if needed
@@ -28,3 +27,4 @@ Simple changelog
 + updates go into a 'css:' or the existing 'less:' style tag; less files saved as css now get proper url() paths
 + added a reload page command for F5; added commands to command palette; better client selection when multiple clients
 + replaced prototype.js with native calls, works standalone (except for less.js, if using .less files)
++ if multiple clients (with the same url), remember or guess the currently selected client
