@@ -18,13 +18,12 @@ class Parser(object):
 		"""Returns (index, key) for the first key found in content in this range."""
 		return next(((x, self.content[x]) for x in range if self.content[x] in keys), None)
 
-	def get_block(self, view):
+	def get_block(self, cursor):
 		"""Returns the brackets (with positions) and text of a block."""
-		cursor = view.sel()[0]
 		brackets = dict.fromkeys('{}', 0)
 		start = self.find_next(brackets, reversed(xrange(0, cursor.begin()))) or (-1, '')
-		end = self.find_next(brackets, xrange(cursor.begin(), view.size())) or (view.size(), '')
-		block = view.substr(sublime.Region(start[0] + 1, end[0]))
+		end = self.find_next(brackets, xrange(cursor.begin(), len(self.content))) or (len(self.content), '')
+		block = self.content[start[0] + 1:end[0]]
 		return start, end, block
 
 	def definitions(self, block, validate=0, with_selector=0):
@@ -47,7 +46,7 @@ class Parser(object):
 		import css_completions
 		self.props = css_completions.parse_css_data(css_completions.css_data)
 
-	def has_changed(self, view):
+	def has_changed(self, content, cursor):
 		"""Checks the current block for changes, returns true if they matter.
 
 		Verifies the following:
@@ -56,13 +55,13 @@ class Parser(object):
 		- if it differs from the previous in self.defs, return true
 		- if the block ends with '{', selector changes also matter
 		"""
-		self.content = view.substr(sublime.Region(0, view.size()))
+		self.content = content
 		if not self.brackets_match(): return
 
 		# this is a built-in module, assume it's available now
 		if not self.props: self.get_css_props()
 
-		start, end, block = self.get_block(view)
+		start, end, block = self.get_block(cursor)
 		defs = self.definitions(block, validate=1, with_selector=end[1] == '{')
 		if self.defs == defs: return
 		self.defs = defs

@@ -2,7 +2,6 @@ import sublime, sublime_plugin
 import os, time, contextlib, re, threading
 import modules
 
-
 @contextlib.contextmanager
 def ignored(*exceptions):
 	try: yield
@@ -151,6 +150,7 @@ class WebloaderEvents(sublime_plugin.EventListener):
 		self.focused = True # Sublime window active
 		self.active = False # watching the currently open file
 		self.live_update = False # live-updating changes in current file
+		self.last_edit_time = 0
 		self.files = {}
 		self.default_events = {
 			'open': 'reload_file',
@@ -227,11 +227,23 @@ class WebloaderEvents(sublime_plugin.EventListener):
 
 	def on_modified(self, view):
 		"""Checks css/less changes, and sends updates when necessary."""
+
 		if not (self.focused and self.active and self.live_update and view.file_name()): return
-		changes = self.parser.has_changed(view)
-		if not changes: return
-		sublime.status_message("%supdating %s" % (webloader.prefix, os.path.basename(view.file_name())))
-		self.file_event(view, 'edit', content=changes)
+		content = view.substr(sublime.Region(0, view.size()))
+		cursor = view.sel()[0]
+		edit_time = time.time()
+
+		def run():
+			changes = self.parser.has_changed(content, cursor)
+			if not changes: return
+			def on_changes():
+				if self.last_edit_time > edit_time: return
+				self.last_edit_time = edit_time
+				sublime.status_message("%supdating %s" % (webloader.prefix, os.path.basename(view.file_name())))
+				self.file_event(view, 'edit', content=changes)
+			sublime.set_timeout(on_changes, 0)
+
+		threading.Thread(target=run).start()
 
 
 class WebloaderJsCommand(sublime_plugin.WindowCommand):

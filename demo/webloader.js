@@ -21,7 +21,7 @@ function WebLoader() {
 	this.collect_files = function() {
 		// regexps for extracting the path+filename and the optional server=... definition from an url
 		// var domain = "(?:https?:)?//[\\w\\.-]+",
-		var domain = "(?:(?:(?:https?:)?//[\\w\\.-]+)|(?:file:///[\\w:]+))",
+		var domain = "(?:(?:(?:https?:)?//[\\w\\.-]+)(?::[0-9]+)?|(?:file:///[\\w:]+))",
 			path = "(/.+\\.(?:less|css|js))",
 			params = "\\?(?:[\\w&:=_-]*&)*",
 			server_param = "server=([\\w\\.-]+)?(?::([0-9]{3,})?)?(/[\\w/_-]*)?",
@@ -190,11 +190,10 @@ function WebLoader() {
 
 				if (!this.is_less(item)) return;
 
-				new Ajax.Request(url, {
-					onFailure: function(response) {
+				var onFailure = function(response) {
 						ref.log('could not refresh %s!', url);
 					},
-					onSuccess: function(response) {
+					onSuccess = function(response) {
 						if (ref.debug > 1) ref.log('ajax: updating %s with', url, response);
 						var parsed = ref.less_parse(response.responseText, item, 1);
 						style.textContent = parsed;
@@ -203,8 +202,8 @@ function WebLoader() {
 							parsed = ref.less_parse(response.responseText, item);
 							ref.send_command('parsed_less', ref.file_handle(file), parsed);
 						}
-					}
-				});
+					};
+				this.ajax_request(url, { failure: onFailure, success: onSuccess });
 			}
 		}
 		this.onreloads.css = this.onreloads.less;
@@ -224,6 +223,20 @@ function WebLoader() {
 
 	this.onreload = function(item, cmd) { return this.call_event('reload', item, cmd); }
 	this.onupdate = function(item, cmd) { return this.call_event('update', item, cmd); }
+
+
+	this.ajax_request = function(url, callbacks) {
+		var req = new XMLHttpRequest();
+		req.onreadystatechange = function() {
+			if (req.readyState !== 4) return;
+			var status = req.status,
+				success = status >= 200 && status < 300,
+				callback = callbacks[success ? 'success' : 'failure'] || function(response) {};
+			callback(req);
+		}
+		req.open('POST', url);
+		req.send();
+	}
 
 
 	/// less and css-related stuff

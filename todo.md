@@ -28,3 +28,5 @@ Simple changelog
 + added a reload page command for F5; added commands to command palette; better client selection when multiple clients
 + replaced prototype.js with native calls, works standalone (except for less.js, if using .less files)
 + if multiple clients (with the same url), remember or guess the currently selected client
++ fixed overlooked error of leaving in a Prototype.Ajax dependency
++ css parsing now runs in threads to avoid slow plugin warning
