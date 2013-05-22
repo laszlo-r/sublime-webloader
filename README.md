@@ -11,21 +11,20 @@ __Still very much in development, but suggestions and fixes are welcome.__
 How to use:
 -----------
 - install with Package Control: `ctrl-shift-p`, `Package Control: Install Package`, `Webloader`
-- if not available there yet, it's quite easy to install manually:
-  - download as zip, unzip, and copy the root folder's contents into Packages/Webloader/
-  - windows: `youruserfolder\AppData\Roaming\Sublime Text 2\Packages\Webloader`
+- restart Sublime, and go to the plugin's directory:
+  - windows: `userfolder\AppData\Roaming\Sublime Text 2\Packages\Webloader`
   - os x: `~/Library/Application Support/Sublime Text 2/Webloader`
   - linux: `~/.config/sublime-text-2/Webloader`
-  - restart Sublime (the console should show a `Webloader:` message if the plugin loaded)
-- open `Webloader/demo/index.html` in a browser (the javascript console should tell if it started watching files)
+- if you have a local webserver, copy the `demo` directory under your webroot (if you don't, skip this)
+- open `demo/index.html` in a browser (if no webserver, open it as `file://`)
 - edit `demo.css` with Sublime, and see the changes on the page *as you type*
-- open `index.html` with Sublime, add some text, save it, this should refresh the page
-- if you put this under your webserver (opened as `http://.../index.html`), `.less` files can be updated live too!
+- edit `index.html`, add some text, save it - this should refresh the page
+- if you used a webserver, try editing `demo.less`, it should update live too!
 
 Used in your projects:
 ----------------------
-- __in one line__: install the plugin, and include webloader.js (and if you need it, less.js) in your page
-- webloader.js works standalone, no js framework necessary; only needs a less.js if you use .less files (tested with less-1.3.3)
+- __in one line__: install the plugin, and include webloader.js on your page (if you use .less files, add less.js too)
+- webloader.js works standalone, no js framework necessary (less.js is optional; tested with less-1.3.3)
 - non-localhost websites:
   - if the page is not on your machine, or sees you as a different ip than localhost/127.0.0.1/::1
   - define your ip: `<script src='webloader.js?server=192.168.0.100:9000'></script>`
@@ -39,7 +38,7 @@ Used in your projects:
 - you can refresh the browser _from Sublime_ with `F5` (use `ctrl-shift-j` to select between multiple pages)
 - you can run javascript on a page directly from Sublime with `ctrl-shift-j`
 - you can send commands to the server with `ctrl-shift-c` (currently only supports stop/restart/start)
-- if you feel like hacking around, you can add custom actions to `webloader.js` (or even `plugin.py`):
+- if you feel like hacking around, you can add custom actions to `webloader.js` (or even `webloader.py`):
   - the `setup_commands` and `setup_callbacks` show the default actions, feel free to customize these
   - you can mess around with the code however you like for your own purposes, but you can't distribute it
 
@@ -49,9 +48,10 @@ Future plans:
 - simpler and easier customization and actions
 - I may release under a less restrictive license later, when I feel it's ready
 
-License:
---------
+Contact and terms:
+------------------
 - Contact: <http://rozsahegyi.info>
+- Project: <https://github.com/rozsahegyi/sublime-webloader>
 - License: [Creative Commons Attribution-NonCommercial-NoDerivs 3.0 Unported License][license].
 - Summary: free to download/share/use, but you have to credit me, and you can't sell, alter, or bundle this.
 - ![Creative Commons License][image]
